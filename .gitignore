@@ -33,3 +33,6 @@ coverage/
 
 # Claude Code local-only settings
 .claude/settings.local.json
+
+# MCP server configuration (contains GitHub PAT / Figma token; must not be committed)
+.mcp.json 
