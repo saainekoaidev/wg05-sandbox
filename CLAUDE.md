@@ -66,3 +66,5 @@ Tier 2 (余裕があれば追加): gh CLI + GitHub MCP server / Claude Code GitH
 新しい要件が発生した場合は, まず docs/requirements.md に追記する。次にその要件を元に GitHub の Issue を起票する。要件文書を起点としてIssueを派生させる順序を守ることで, 要件の全体像が常に docs/requirements.md で把握できる状態を保つ。
 
 画面に関する判断 (画面構成・遷移・操作フロー・主要なUI要素) を行った場合は, docs/ui.md に反映する。画面仕様の変更履歴がこのファイルに集約されることで, UIの最新状態が常に1か所で確認できる状態を保つ。
+
+要点は ｢判断や変更は必ず該当ドキュメント (ADR / requirements.md / ui.md) に先に書く → そこから派生作業｣ という single source of truth の徹底。
