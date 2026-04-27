@@ -36,3 +36,16 @@ coverage/
 
 # MCP server configuration (contains GitHub PAT / Figma token; must not be committed)
 .mcp.json 
+
+# pnpm
+.pnpm-store/
+
+# Prisma SQLite database files
+*.db
+*.db-journal
+backend/prisma/dev.db*
+
+# Playwright
+playwright-report/
+test-results/
+/playwright/.cache/
