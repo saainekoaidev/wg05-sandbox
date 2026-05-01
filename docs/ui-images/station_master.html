@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>駅マスタ参照</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell shell--wide">
+
+  <!-- ヘッダー -->
+  <div class="head">
+    <div class="brand">Station Master</div>
+    <h1>駅マスタ参照</h1>
+    <p>キーワード・種別・路線で駅や停留所を絞り込み、選択ボタンで呼出元のフォームに駅名を返します</p>
+  </div>
+
+  <!-- 本体 -->
+  <div class="body">
+
+    <!-- 検索条件 -->
+    <form class="search-row" onsubmit="event.preventDefault();">
+      <div class="group">
+        <label for="q">駅名 / よみがな</label>
+        <input type="text" id="q" name="q" placeholder="しぶや / 渋谷 / shibuya" maxlength="30">
+      </div>
+      <div class="group group--narrow">
+        <label for="kind">種別</label>
+        <select id="kind" name="kind">
+          <option value="">すべて</option>
+          <option value="train">電車</option>
+          <option value="subway">地下鉄</option>
+          <option value="bus">バス</option>
+          <option value="other">その他</option>
+        </select>
+      </div>
+      <div class="group">
+        <label for="line">路線</label>
+        <select id="line" name="line">
+          <option value="">すべての路線</option>
+          <option>JR山手線</option>
+          <option>JR中央線</option>
+          <option>東京メトロ銀座線</option>
+          <option>東京メトロ丸ノ内線</option>
+          <option>東京メトロ副都心線</option>
+          <option>都営大江戸線</option>
+          <option>都営バス01系統</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">検索</button>
+      <button type="reset" class="btn btn-secondary">クリア</button>
+    </form>
+
+    <!-- 結果テーブル -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-num">#</th>
+            <th>種別</th>
+            <th>駅名 / 停留所</th>
+            <th>よみがな</th>
+            <th>主要路線</th>
+            <th class="col-actions">選択</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="col-num">1</td>
+            <td><span class="tag tag-train">電車</span></td>
+            <td>渋谷</td>
+            <td>しぶや</td>
+            <td>JR山手線, 東急東横線, 東京メトロ副都心線</td>
+            <td>
+              <div class="col-actions">
+                <button type="button" class="btn btn-primary btn-sm" onclick="pickStation('渋谷')">選択</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="col-num">2</td>
+            <td><span class="tag tag-train">電車</span></td>
+            <td>新宿</td>
+            <td>しんじゅく</td>
+            <td>JR山手線, JR中央線, 都営新宿線</td>
+            <td>
+              <div class="col-actions">
+                <button type="button" class="btn btn-primary btn-sm" onclick="pickStation('新宿')">選択</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="col-num">3</td>
+            <td><span class="tag tag-subway">地下鉄</span></td>
+            <td>表参道</td>
+            <td>おもてさんどう</td>
+            <td>東京メトロ銀座線, 千代田線, 半蔵門線</td>
+            <td>
+              <div class="col-actions">
+                <button type="button" class="btn btn-primary btn-sm" onclick="pickStation('表参道')">選択</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="col-num">4</td>
+            <td><span class="tag tag-train">電車</span></td>
+            <td>神田</td>
+            <td>かんだ</td>
+            <td>JR山手線, JR中央線, 東京メトロ銀座線</td>
+            <td>
+              <div class="col-actions">
+                <button type="button" class="btn btn-primary btn-sm" onclick="pickStation('神田')">選択</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="col-num">5</td>
+            <td><span class="tag tag-bus">バス</span></td>
+            <td>都営バス 渋谷駅前</td>
+            <td>しぶやえきまえ</td>
+            <td>都営バス01系統, 03系統</td>
+            <td>
+              <div class="col-actions">
+                <button type="button" class="btn btn-primary btn-sm" onclick="pickStation('都営バス 渋谷駅前')">選択</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ボタン群 -->
+    <div class="actions actions--no-divider" style="margin-top:24px;">
+      <button type="button" class="btn btn-ghost" onclick="window.close()">閉じる</button>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  // ポップアップ呼出元 (route_register.html / route_edit.html) に駅名を返してウィンドウを閉じる想定。
+  // 現状は駅名をログ出力 + ウィンドウクローズのみ (実装時に opener へ postMessage で受け渡す)
+  function pickStation(name) {
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.postMessage({ type: 'station-pick', name }, '*');
+      } catch (e) { /* ignore */ }
+    }
+    window.close();
+  }
+</script>
+
+</body>
+</html>

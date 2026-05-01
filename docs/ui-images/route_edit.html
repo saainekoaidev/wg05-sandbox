@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>通勤経路の編集</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell shell--wide">
+
+  <!-- ヘッダー -->
+  <div class="head">
+    <div class="brand">Edit Route</div>
+    <h1>通勤経路の編集</h1>
+    <p>最終更新: 2026-04-30 12:00</p>
+  </div>
+
+  <!-- フォーム -->
+  <form onsubmit="event.preventDefault();">
+
+    <div class="group">
+      <label for="route-name">経路名</label>
+      <input type="text" id="route-name" name="name" value="平日通勤" maxlength="50">
+      <div class="hint">未入力の場合「(無題)」として保存されます</div>
+    </div>
+
+    <!-- Segments ブロック -->
+    <div class="divider"><span>Segments</span></div>
+
+    <div class="segments" id="segments">
+
+      <div class="segment-card">
+        <div class="segment-card-head">
+          <div class="segment-no">01</div>
+          <div class="group group--narrow">
+            <label>種別<span class="req">必須</span></label>
+            <select class="seg-kind" onchange="recalc()">
+              <option value="train" selected>電車</option>
+              <option value="subway">地下鉄</option>
+              <option value="bus">バス</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>路線名</label>
+            <select class="seg-line">
+              <option value="">(未選択)</option>
+              <option selected>JR山手線</option>
+              <option>JR中央線</option>
+              <option>JR京浜東北線</option>
+              <option>東京メトロ銀座線</option>
+              <option>東京メトロ丸ノ内線</option>
+              <option>東京メトロ副都心線</option>
+              <option>東京メトロ千代田線</option>
+              <option>都営大江戸線</option>
+              <option>都営浅草線</option>
+              <option>東急東横線</option>
+              <option>京王線</option>
+              <option>小田急線</option>
+              <option>都営バス01系統</option>
+              <option>その他</option>
+            </select>
+          </div>
+          <button type="button" class="btn-rm" title="区間を削除" onclick="removeSegment(this)">×</button>
+        </div>
+        <div class="segment-card-route">
+          <div class="group">
+            <label>出発<span class="req">必須</span></label>
+            <div class="input-with-action">
+              <input type="text" class="seg-from" value="渋谷" maxlength="50" oninput="recalc()">
+              <button type="button" class="btn-pick" onclick="openStationPicker()">駅選択</button>
+            </div>
+          </div>
+          <div class="group">
+            <label>到着<span class="req">必須</span></label>
+            <div class="input-with-action">
+              <input type="text" class="seg-to" value="表参道" maxlength="50" oninput="recalc()">
+              <button type="button" class="btn-pick" onclick="openStationPicker()">駅選択</button>
+            </div>
+          </div>
+          <div class="group group--narrow">
+            <label>運賃<span class="req">必須</span></label>
+            <input type="number" class="seg-fare" value="160" min="1" max="99999" inputmode="numeric" oninput="recalc()">
+          </div>
+        </div>
+      </div>
+
+      <div class="segment-card">
+        <div class="segment-card-head">
+          <div class="segment-no">02</div>
+          <div class="group group--narrow">
+            <label>種別<span class="req">必須</span></label>
+            <select class="seg-kind" onchange="recalc()">
+              <option value="train">電車</option>
+              <option value="subway" selected>地下鉄</option>
+              <option value="bus">バス</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+          <div class="group">
+            <label>路線名</label>
+            <select class="seg-line">
+              <option value="">(未選択)</option>
+              <option>JR山手線</option>
+              <option>JR中央線</option>
+              <option>JR京浜東北線</option>
+              <option selected>東京メトロ銀座線</option>
+              <option>東京メトロ丸ノ内線</option>
+              <option>東京メトロ副都心線</option>
+              <option>東京メトロ千代田線</option>
+              <option>都営大江戸線</option>
+              <option>都営浅草線</option>
+              <option>東急東横線</option>
+              <option>京王線</option>
+              <option>小田急線</option>
+              <option>都営バス01系統</option>
+              <option>その他</option>
+            </select>
+          </div>
+          <button type="button" class="btn-rm" title="区間を削除" onclick="removeSegment(this)">×</button>
+        </div>
+        <div class="segment-card-route">
+          <div class="group">
+            <label>出発<span class="req">必須</span></label>
+            <div class="input-with-action">
+              <input type="text" class="seg-from" value="表参道" maxlength="50" oninput="recalc()">
+              <button type="button" class="btn-pick" onclick="openStationPicker()">駅選択</button>
+            </div>
+          </div>
+          <div class="group">
+            <label>到着<span class="req">必須</span></label>
+            <div class="input-with-action">
+              <input type="text" class="seg-to" value="神田" maxlength="50" oninput="recalc()">
+              <button type="button" class="btn-pick" onclick="openStationPicker()">駅選択</button>
+            </div>
+          </div>
+          <div class="group group--narrow">
+            <label>運賃<span class="req">必須</span></label>
+            <input type="number" class="seg-fare" value="160" min="1" max="99999" inputmode="numeric" oninput="recalc()">
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <button type="button" class="btn-add" onclick="addSegment()">+ 区間を追加</button>
+
+    <!-- 経路サマリ (自動算出) -->
+    <div class="route-summary">
+      <div class="route-flow">
+        <span><span class="pill-label">出発</span><span id="summary-from" class="station-name">渋谷</span></span>
+        <span class="arrow">→</span>
+        <span><span class="pill-label">到着</span><span id="summary-to" class="station-name">神田</span></span>
+      </div>
+      <div class="total">合計運賃: <span id="summary-total">¥320</span></div>
+    </div>
+
+    <!-- ボタン群 -->
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">更新する</button>
+      <a href="route_detail.html" class="btn btn-ghost">キャンセル</a>
+    </div>
+
+  </form>
+
+  <!-- フッター -->
+  <div class="foot">
+    <a href="route_detail.html">← 経路詳細に戻る</a>
+  </div>
+
+</div>
+
+<script>
+  function openStationPicker() {
+    window.open(
+      'station_master.html',
+      'station-picker',
+      'width=960,height=720,resizable=yes,scrollbars=yes'
+    );
+  }
+
+  function removeSegment(btn) {
+    const card = btn.closest('.segment-card');
+    const segs = document.querySelectorAll('#segments .segment-card');
+    if (segs.length <= 1) return;
+    card.remove();
+    renumber();
+    recalc();
+  }
+
+  function addSegment() {
+    const segs = document.querySelectorAll('#segments .segment-card');
+    if (segs.length >= 10) return;
+    const last = segs[segs.length - 1];
+    const clone = last.cloneNode(true);
+    clone.querySelectorAll('input').forEach((i) => { i.value = ''; });
+    clone.querySelectorAll('select.seg-kind').forEach((s) => { s.value = 'train'; });
+    clone.querySelectorAll('select.seg-line').forEach((s) => { s.value = ''; });
+    last.parentNode.appendChild(clone);
+    renumber();
+    recalc();
+  }
+
+  function renumber() {
+    document.querySelectorAll('#segments .segment-card .segment-no').forEach((el, i) => {
+      el.textContent = String(i + 1).padStart(2, '0');
+    });
+  }
+
+  function recalc() {
+    const cards = document.querySelectorAll('#segments .segment-card');
+    const first = cards[0];
+    const last  = cards[cards.length - 1];
+    const fromEl = document.getElementById('summary-from');
+    const toEl   = document.getElementById('summary-to');
+    const fromVal = first?.querySelector('.seg-from')?.value?.trim() || '';
+    const toVal   = last?.querySelector('.seg-to')?.value?.trim() || '';
+    fromEl.textContent = fromVal || '(未入力)';
+    toEl.textContent   = toVal   || '(未入力)';
+    fromEl.classList.toggle('is-empty', !fromVal);
+    toEl.classList.toggle('is-empty', !toVal);
+    let total = 0;
+    document.querySelectorAll('#segments .seg-fare').forEach((i) => {
+      const v = parseInt(i.value, 10);
+      if (!isNaN(v)) total += v;
+    });
+    document.getElementById('summary-total').textContent = '¥' + total.toLocaleString();
+  }
+
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'station-pick') {
+      console.log('station picked:', e.data.name);
+    }
+  });
+</script>
+
+</body>
+</html>

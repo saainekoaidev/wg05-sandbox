@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>通勤経路一覧</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell shell--wide">
+
+  <!-- ヘッダー -->
+  <div class="head">
+    <div class="head-row">
+      <div>
+        <div class="brand">Routes</div>
+        <h1>通勤経路一覧</h1>
+        <p>登録済みの通勤経路を確認 / 編集 / 削除できます</p>
+      </div>
+      <div>
+        <a href="route_register.html" class="btn btn-primary btn-sm">+ 新規登録</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本体 -->
+  <div class="body">
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-num">#</th>
+            <th>経路名</th>
+            <th>種別 / 路線</th>
+            <th>出発 → 到着</th>
+            <th class="col-num">区間</th>
+            <th class="col-num">合計運賃</th>
+            <th class="col-actions">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="col-num">1</td>
+            <td>平日通勤</td>
+            <td>
+              <div class="cell-stack">
+                <div class="tag-row">
+                  <span class="tag tag-train">電車</span>
+                  <span class="tag tag-subway">地下鉄</span>
+                </div>
+                <div class="line-list">JR山手線 / 銀座線</div>
+              </div>
+            </td>
+            <td>渋谷 → 神田</td>
+            <td class="col-num">2</td>
+            <td class="col-num">¥320</td>
+            <td>
+              <div class="col-actions">
+                <a class="btn btn-secondary btn-sm" href="route_detail.html">詳細</a>
+                <a class="btn btn-secondary btn-sm" href="route_edit.html">編集</a>
+                <button type="button" class="btn btn-danger btn-sm">削除</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="col-num">2</td>
+            <td>在宅日経由</td>
+            <td>
+              <div class="cell-stack">
+                <div class="tag-row">
+                  <span class="tag tag-train">電車</span>
+                  <span class="tag tag-bus">バス</span>
+                </div>
+                <div class="line-list">JR中央線 / 都営バス01系統</div>
+              </div>
+            </td>
+            <td>新宿 → 大手町</td>
+            <td class="col-num">3</td>
+            <td class="col-num">¥450</td>
+            <td>
+              <div class="col-actions">
+                <a class="btn btn-secondary btn-sm" href="route_detail.html">詳細</a>
+                <a class="btn btn-secondary btn-sm" href="route_edit.html">編集</a>
+                <button type="button" class="btn btn-danger btn-sm">削除</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="col-num">3</td>
+            <td>(無題)</td>
+            <td>
+              <div class="cell-stack">
+                <div class="tag-row">
+                  <span class="tag tag-train">電車</span>
+                </div>
+                <div class="line-list">JR山手線 / 丸ノ内線</div>
+              </div>
+            </td>
+            <td>池袋 → 東京</td>
+            <td class="col-num">2</td>
+            <td class="col-num">¥220</td>
+            <td>
+              <div class="col-actions">
+                <a class="btn btn-secondary btn-sm" href="route_detail.html">詳細</a>
+                <a class="btn btn-secondary btn-sm" href="route_edit.html">編集</a>
+                <button type="button" class="btn btn-danger btn-sm">削除</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- フッター -->
+  <div class="foot foot--split">
+    <span>ユーザー: yamada@example.com</span>
+    <a href="login.html">ログアウト</a>
+  </div>
+
+</div>
+
+</body>
+</html>

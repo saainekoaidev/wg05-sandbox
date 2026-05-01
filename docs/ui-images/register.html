@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ユーザー登録</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ヘッダー -->
+  <div class="head">
+    <div class="brand">User Registration</div>
+    <h1>アカウント登録</h1>
+    <p>必要事項をご入力のうえ「登録」ボタンを押してください</p>
+  </div>
+
+  <!-- フォーム -->
+  <form onsubmit="event.preventDefault();">
+
+    <!-- アカウント情報 -->
+    <div class="group">
+      <label for="email">メールアドレス<span class="req">必須</span></label>
+      <input type="email" id="email" name="email" placeholder="example@domain.com" autocomplete="email">
+    </div>
+
+    <div class="group">
+      <label for="password">パスワード<span class="req">必須</span></label>
+      <div class="pwd-wrap">
+        <input type="password" id="password" name="password" placeholder="半角英数記号 8〜32文字" autocomplete="new-password">
+        <button type="button" class="pwd-toggle" onclick="togglePwd()">表示</button>
+      </div>
+      <div class="hint">英大文字・小文字・数字をそれぞれ1文字以上含めてください</div>
+    </div>
+
+    <!-- 区切り線 -->
+    <div class="divider"><span>Profile</span></div>
+
+    <!-- ユーザー基本情報 -->
+    <div class="group">
+      <label for="name">お名前<span class="req">必須</span></label>
+      <input type="text" id="name" name="name" placeholder="山田 太郎" autocomplete="name">
+    </div>
+
+    <div class="group group--narrow">
+      <label for="zip">郵便番号<span class="req">必須</span></label>
+      <input type="text" id="zip" name="zip" placeholder="100-0001" inputmode="numeric" maxlength="8" autocomplete="postal-code">
+      <div class="hint">ハイフンあり・なしどちらでも入力可</div>
+    </div>
+
+    <!-- ボタン群 -->
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">登録する</button>
+      <button type="reset" class="btn btn-secondary">リセット</button>
+      <button type="button" class="btn btn-ghost">キャンセル</button>
+    </div>
+
+  </form>
+
+  <!-- フッター -->
+  <div class="foot">
+    すでにアカウントをお持ちの方は<a href="login.html">ログイン</a>
+  </div>
+
+</div>
+
+<script>
+  function togglePwd() {
+    const input = document.getElementById('password');
+    const btn = document.querySelector('.pwd-toggle');
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = '隠す';
+    } else {
+      input.type = 'password';
+      btn.textContent = '表示';
+    }
+  }
+</script>
+
+</body>
+</html>

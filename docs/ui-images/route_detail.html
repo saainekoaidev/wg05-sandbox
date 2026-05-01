@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>経路詳細</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell shell--wide">
+
+  <!-- ヘッダー -->
+  <div class="head">
+    <div class="brand">Route Detail</div>
+    <h1>経路詳細</h1>
+    <p>登録済み経路の詳細情報を確認できます</p>
+  </div>
+
+  <!-- 本体 -->
+  <div class="body">
+
+    <div class="detail">
+      <div class="detail-row">
+        <div class="label">経路名</div>
+        <div class="value">平日通勤</div>
+      </div>
+      <div class="detail-row">
+        <div class="label">出発駅</div>
+        <div class="value">渋谷</div>
+      </div>
+      <div class="detail-row">
+        <div class="label">到着駅</div>
+        <div class="value">神田</div>
+      </div>
+      <div class="detail-row">
+        <div class="label">区間数</div>
+        <div class="value">2</div>
+      </div>
+      <div class="detail-row">
+        <div class="label">合計運賃</div>
+        <div class="value">¥320</div>
+      </div>
+      <div class="detail-row">
+        <div class="label">登録日時</div>
+        <div class="value">2026-04-30 12:00</div>
+      </div>
+      <div class="detail-row">
+        <div class="label">更新日時</div>
+        <div class="value">2026-04-30 12:00</div>
+      </div>
+    </div>
+
+    <div class="section-divider"><span>Segments</span></div>
+
+    <div class="segment-list">
+      <div class="seg-item">
+        <div class="seg-no">01</div>
+        <div class="seg-body">
+          <div class="seg-line-row">
+            <span class="tag tag-train">電車</span>
+            <span class="seg-line">JR山手線</span>
+          </div>
+          <div class="seg-flow">渋谷 → 表参道</div>
+        </div>
+        <div class="seg-fare">¥160</div>
+      </div>
+      <div class="seg-item">
+        <div class="seg-no">02</div>
+        <div class="seg-body">
+          <div class="seg-line-row">
+            <span class="tag tag-subway">地下鉄</span>
+            <span class="seg-line">東京メトロ銀座線</span>
+          </div>
+          <div class="seg-flow">表参道 → 神田</div>
+        </div>
+        <div class="seg-fare">¥160</div>
+      </div>
+    </div>
+
+    <!-- ボタン群 -->
+    <div class="actions">
+      <a href="route_edit.html" class="btn btn-primary">編集</a>
+      <button type="button" class="btn btn-danger">削除</button>
+      <a href="route_list.html" class="btn btn-ghost">一覧に戻る</a>
+    </div>
+
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ログイン</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ヘッダー -->
+  <div class="head">
+    <div class="brand">Sign In</div>
+    <h1>ログイン</h1>
+    <p>登録済みのメールアドレスとパスワードでログインしてください</p>
+  </div>
+
+  <!-- フォーム -->
+  <form onsubmit="event.preventDefault(); window.location.href='route_list.html';">
+
+    <!-- サーバエラーバナー (例: ID/PW 不一致時に表示) -->
+    <div class="banner">メールアドレスまたはパスワードが正しくありません</div>
+
+    <div class="group">
+      <label for="email">メールアドレス<span class="req">必須</span></label>
+      <input type="email" id="email" name="email" placeholder="example@domain.com" autocomplete="email">
+    </div>
+
+    <div class="group">
+      <label for="password">パスワード<span class="req">必須</span></label>
+      <div class="pwd-wrap">
+        <input type="password" id="password" name="password" placeholder="半角英数記号 8〜32文字" autocomplete="current-password">
+        <button type="button" class="pwd-toggle" onclick="togglePwd()">表示</button>
+      </div>
+    </div>
+
+    <!-- ボタン群 -->
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">ログイン</button>
+      <button type="reset" class="btn btn-secondary">クリア</button>
+    </div>
+
+  </form>
+
+  <!-- フッター -->
+  <div class="foot">
+    アカウントをお持ちでない方は<a href="register.html">新規登録</a>
+  </div>
+
+</div>
+
+<script>
+  function togglePwd() {
+    const input = document.getElementById('password');
+    const btn = document.querySelector('.pwd-toggle');
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = '隠す';
+    } else {
+      input.type = 'password';
+      btn.textContent = '表示';
+    }
+  }
+</script>
+
+</body>
+</html>
