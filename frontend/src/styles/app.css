@@ -1,0 +1,666 @@
+/* WG05 通勤経路登録システム 共通スタイル
+ * register.html (S01 サインアップ) のスタイルを基底とし,
+ * 一覧画面 (table) / 詳細画面 (read-only display) / 区間入力 (動的 form) の追加要素を加える。
+ */
+
+:root {
+  --blue-950: #0a1933;
+  --blue-900: #0f2350;
+  --blue-800: #1a3a8a;
+  --blue-700: #2456c9;
+  --blue-600: #3b6fe8;
+  --blue-500: #5a8af0;
+  --blue-100: #e6efff;
+  --blue-50:  #f4f8ff;
+  --ink:      #1a2540;
+  --muted:    #6b7a9a;
+  --line:     #d8e2f4;
+  --bg:       #eaf1fb;
+  --white:    #ffffff;
+  --danger:   #d83a52;
+  --danger-bg: #fde8eb;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  min-height: 100vh;
+  font-family: 'Noto Sans JP', sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 15% 10%, rgba(91, 138, 240, 0.22), transparent 45%),
+    radial-gradient(circle at 85% 90%, rgba(36, 86, 201, 0.20), transparent 50%),
+    linear-gradient(135deg, #dde8f8 0%, #eaf1fb 50%, #f4f8ff 100%);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 20px;
+}
+
+.shell {
+  width: 100%;
+  max-width: 560px;
+  background: var(--white);
+  border-radius: 20px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 30px 60px -20px rgba(15, 35, 80, 0.25),
+    0 12px 24px -8px rgba(15, 35, 80, 0.10);
+  overflow: hidden;
+  position: relative;
+}
+.shell--wide { max-width: 920px; }
+
+/* ヘッダー */
+.head {
+  background: linear-gradient(135deg, var(--blue-900) 0%, var(--blue-700) 100%);
+  color: var(--white);
+  padding: 36px 40px 32px;
+  position: relative;
+  overflow: hidden;
+}
+.head::before {
+  content: "";
+  position: absolute;
+  top: -40px; right: -40px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%);
+  border-radius: 50%;
+}
+.head::after {
+  content: "";
+  position: absolute;
+  bottom: -30px; left: -30px;
+  width: 140px; height: 140px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 50%;
+}
+.head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+  gap: 16px;
+}
+.head-row > div { min-width: 0; }
+.brand {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--blue-500);
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 1;
+}
+.head h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  position: relative;
+  z-index: 1;
+}
+.head p {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  position: relative;
+  z-index: 1;
+}
+
+/* ボディ (form / list / detail で共用) */
+.body {
+  padding: 36px 40px 32px;
+}
+form { padding: 36px 40px 32px; }
+
+.group { margin-bottom: 22px; }
+.group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+}
+.group label .req {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--white);
+  background: var(--blue-700);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.08em;
+  vertical-align: 1px;
+}
+.group input,
+.group select {
+  width: 100%;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--blue-50);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  transition: all 0.18s ease;
+}
+.group input:hover,
+.group select:hover {
+  border-color: var(--blue-500);
+  background: var(--white);
+}
+.group input:focus,
+.group select:focus {
+  outline: none;
+  border-color: var(--blue-700);
+  background: var(--white);
+  box-shadow: 0 0 0 4px rgba(36, 86, 201, 0.12);
+}
+.group input::placeholder { color: #aab5c8; }
+.group input[readonly] {
+  background: var(--blue-50);
+  color: var(--muted);
+  cursor: default;
+}
+.group--narrow input { max-width: 220px; letter-spacing: 0.06em; }
+
+/* 入力欄 + 横ボタン (駅選択など) */
+.input-with-action {
+  display: flex;
+  gap: 8px;
+}
+.input-with-action input { flex: 1; }
+.input-with-action .btn-pick {
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--blue-700);
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+.input-with-action .btn-pick:hover {
+  border-color: var(--blue-700);
+  background: var(--blue-50);
+}
+
+/* パスワード欄 */
+.pwd-wrap { position: relative; }
+.pwd-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+.pwd-toggle:hover { color: var(--blue-700); background: var(--blue-100); }
+
+/* 区切り線 / セクションタイトル */
+.divider, .section-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 28px 0 24px;
+  color: var(--muted);
+}
+.divider::before, .divider::after,
+.section-divider::before, .section-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+}
+.divider span, .section-divider span {
+  font-family: 'Outfit', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* ヒント */
+.hint { margin-top: 6px; font-size: 11px; color: var(--muted); }
+
+/* ボタン群 */
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.actions--no-divider {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.btn {
+  flex: 1;
+  padding: 13px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  letter-spacing: 0.06em;
+  border: 1.5px solid transparent;
+  text-align: center;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-primary {
+  flex: 1.6;
+  color: var(--white);
+  background: linear-gradient(135deg, var(--blue-700) 0%, var(--blue-800) 100%);
+  box-shadow: 0 6px 16px -4px rgba(36, 86, 201, 0.45);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -4px rgba(36, 86, 201, 0.55);
+}
+.btn-primary:active { transform: translateY(0); }
+.btn-secondary {
+  color: var(--blue-700);
+  background: var(--white);
+  border-color: var(--line);
+}
+.btn-secondary:hover {
+  border-color: var(--blue-700);
+  background: var(--blue-50);
+}
+.btn-ghost {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+.btn-ghost:hover { color: var(--ink); background: var(--blue-50); }
+.btn-danger {
+  color: var(--white);
+  background: var(--danger);
+  box-shadow: 0 6px 16px -4px rgba(216, 58, 82, 0.40);
+}
+.btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -4px rgba(216, 58, 82, 0.50);
+}
+.btn-sm {
+  flex: none;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 7px;
+}
+
+/* テーブル (一覧画面) */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+thead th {
+  background: var(--blue-50);
+  color: var(--ink);
+  font-weight: 600;
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1.5px solid var(--line);
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+tbody tr:hover { background: var(--blue-50); }
+.col-num { text-align: right; font-variant-numeric: tabular-nums; }
+.col-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* 詳細画面 (read-only 表示) */
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 24px;
+}
+.detail-row {
+  display: flex;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  align-items: baseline;
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-row .label {
+  width: 130px;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.detail-row .value { flex: 1; color: var(--ink); font-weight: 500; }
+
+/* 区間 (動的フォーム) */
+.segments {
+  background: var(--blue-50);
+  padding: 18px;
+  border-radius: 12px;
+  margin: 16px 0 8px;
+}
+.segment-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.segment-row:last-child { margin-bottom: 0; }
+.segment-row .group { flex: 1; margin-bottom: 0; }
+.segment-row .group--narrow { flex: 0 0 130px; }
+.segment-no {
+  flex: 0 0 36px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  padding-bottom: 14px;
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: 0.08em;
+}
+.btn-rm {
+  flex: 0 0 auto;
+  padding: 11px 12px;
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-rm:hover { color: var(--danger); border-color: var(--danger); }
+.btn-add {
+  width: 100%;
+  padding: 11px;
+  border: 1.5px dashed var(--line);
+  background: transparent;
+  color: var(--blue-700);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.18s;
+  margin-top: 8px;
+}
+.btn-add:hover { border-color: var(--blue-700); background: var(--blue-50); }
+
+/* 区間表示 (read-only 経路詳細) */
+.segment-list {
+  margin-top: 8px;
+  background: var(--blue-50);
+  border-radius: 12px;
+  padding: 6px 18px;
+}
+.segment-list .seg-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.segment-list .seg-item:last-child { border-bottom: none; }
+.segment-list .seg-no {
+  flex: 0 0 30px;
+  color: var(--muted);
+  font-weight: 600;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+}
+.segment-list .seg-flow {
+  flex: 1;
+  color: var(--ink);
+  font-weight: 500;
+}
+.segment-list .seg-fare {
+  flex: 0 0 80px;
+  text-align: right;
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 検索行 (駅マスタ参照) */
+.search-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 24px;
+}
+.search-row .group { flex: 1; margin-bottom: 0; }
+.search-row .btn { flex: 0 0 auto; padding: 13px 22px; }
+
+/* 経路サマリ (出発・到着・合計運賃の自動表示バー) */
+.route-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: var(--blue-50);
+  border: 1px solid var(--line);
+  padding: 14px 18px;
+  border-radius: 10px;
+  margin-top: 18px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+.route-summary .route-flow {
+  color: var(--ink);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.route-summary .route-flow .pill-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+.route-summary .route-flow .station-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+.route-summary .route-flow .station-name.is-empty {
+  color: var(--muted);
+  font-weight: 400;
+  font-style: italic;
+}
+.route-summary .route-flow .arrow {
+  color: var(--blue-700);
+  font-weight: 700;
+}
+.route-summary .total {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* フィールド単位のエラー (入力直下) */
+.field-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--danger);
+  font-weight: 500;
+}
+
+/* バナー (フォーム上部のサーバエラー想定) */
+.banner {
+  margin-bottom: 22px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid rgba(216, 58, 82, 0.20);
+  display: none; /* default hidden, JS controlled */
+}
+.banner.is-shown { display: block; }
+
+/* フッター */
+.foot {
+  text-align: center;
+  padding: 18px 40px 28px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--blue-50);
+  border-top: 1px solid var(--line);
+}
+.foot a {
+  color: var(--blue-700);
+  text-decoration: none;
+  font-weight: 500;
+  margin-left: 4px;
+}
+.foot a:hover { text-decoration: underline; }
+.foot--split {
+  display: flex;
+  justify-content: space-between;
+  text-align: left;
+}
+
+/* 区間カード (種別・路線名 + 駅・運賃 を1区間にまとめた縦積み構造) */
+.segment-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.segment-card:last-child { margin-bottom: 0; }
+.segment-card-head,
+.segment-card-route {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.segment-card-head { margin-bottom: 12px; }
+.segment-card-head .group,
+.segment-card-route .group {
+  flex: 1;
+  margin-bottom: 0;
+}
+.segment-card-head .group--narrow,
+.segment-card-route .group--narrow { flex: 0 0 130px; }
+
+/* 種別タグ (一覧 / 詳細) */
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.tag-train  { color: var(--blue-700); background: var(--blue-100); }
+.tag-subway { color: #b8460e;         background: #fff1e6; }
+.tag-bus    { color: #1d8048;         background: #e6f6ec; }
+.tag-other  { color: var(--muted);    background: var(--blue-50); }
+
+/* 区間表示 (read-only): 種別タグ + 路線名 を出発→到着の上に表示 */
+.segment-list .seg-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.segment-list .seg-line-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.segment-list .seg-line {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 一覧の路線サマリセル */
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cell-stack .tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cell-stack .line-list {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* レスポンシブ */
+@media (max-width: 520px) {
+  .head { padding: 28px 24px; }
+  form, .body { padding: 28px 24px; }
+  .foot { padding: 16px 24px 24px; }
+  .head h1 { font-size: 22px; }
+  .actions { flex-direction: column; }
+  .btn-primary { flex: 1; }
+  .segment-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .segment-row .group--narrow { flex: 1; }
+  .segment-card-head, .segment-card-route { flex-direction: column; align-items: stretch; gap: 8px; }
+  .segment-card-head .group--narrow, .segment-card-route .group--narrow { flex: 1; }
+  .detail-row { flex-direction: column; gap: 4px; }
+  .detail-row .label { width: auto; }
+  .input-with-action { flex-direction: column; }
+  .input-with-action .btn-pick { padding: 11px 16px; }
+}

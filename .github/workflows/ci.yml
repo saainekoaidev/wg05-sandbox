@@ -2,12 +2,78 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
   pull_request:
+    branches: [main]
+
+# 同一ブランチに連続 push したとき、進行中の古い run を自動キャンセルして CI 時間を節約する
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  placeholder:
+  test:
+    name: build + unit + e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # backend/.env はリポジトリに含めていないため CI で生成する。
+      # backend/src/test/setup.ts は test 実行時に DATABASE_URL を test.db に上書きするので、
+      # ここで設定する dev.db / SECRET は主に E2E 時の dev サーバ起動向け。
+      - name: Create backend/.env (CI only)
+        run: |
+          echo 'DATABASE_URL="file:./dev.db"' > backend/.env
+          echo 'BETTER_AUTH_SECRET="ci-secret-deterministic-deadbeef-cafebabe-1234567890abcdef"' >> backend/.env
+          echo 'BETTER_AUTH_URL="http://localhost:3000"' >> backend/.env
+
+      - name: Prisma generate
+        working-directory: backend
+        run: pnpm exec prisma generate
+
+      # E2E で起動する dev サーバが使う dev.db に migrations を適用する。
+      # backend Vitest は test/setup.ts が test.db を別途用意するため影響しない。
+      - name: Apply Prisma migrations to dev DB
+        working-directory: backend
+        run: pnpm exec prisma migrate deploy
+
+      - name: Build (frontend + backend)
+        run: pnpm -r build
+
+      - name: Backend unit tests (Vitest)
+        run: pnpm --filter backend test
+
+      - name: Frontend unit tests (Vitest)
+        run: pnpm --filter frontend test
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: E2E tests (Playwright)
+        run: pnpm test:e2e
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
