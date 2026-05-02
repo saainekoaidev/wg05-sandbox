@@ -180,7 +180,7 @@ describe('RouteList', () => {
     expect(await screen.findByText('(無題)')).toBeInTheDocument()
   })
 
-  it('行内アクション: 詳細はリンク有効化 (US-005), 編集 / 削除 は disabled で title が付く', async () => {
+  it('行内アクション: 詳細・編集はリンク有効化 (US-005/006), 削除は disabled で title が付く', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
     )
@@ -190,13 +190,12 @@ describe('RouteList', () => {
     const utils = within(row as HTMLElement)
 
     const detailLink = utils.getByRole('link', { name: /詳細/ })
-    const editBtn = utils.getByRole('button', { name: /編集/ })
+    const editLink = utils.getByRole('link', { name: /編集/ })
     const deleteBtn = utils.getByRole('button', { name: /削除/ })
 
     expect(detailLink).toHaveAttribute('href', '/routes/r-a')
-    expect(editBtn).toBeDisabled()
+    expect(editLink).toHaveAttribute('href', '/routes/r-a/edit')
     expect(deleteBtn).toBeDisabled()
-    expect(editBtn).toHaveAttribute('title', expect.stringContaining('US-006'))
     expect(deleteBtn).toHaveAttribute('title', expect.stringContaining('US-007'))
   })
 

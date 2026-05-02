@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom'
 import { useSession } from '../lib/auth'
 import { LINES, type LineKind } from '../lib/lines'
 
@@ -60,9 +66,16 @@ type LoadState =
 export function RouteDetail() {
   const { data: session, isPending } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
   const params = useParams<{ id: string }>()
   const id = params.id ?? ''
 
+  // 編集成功時などに前画面 (RouteEdit) からの navigate state.notice を一度だけ拾う
+  const initialNotice =
+    typeof (location.state as { notice?: unknown } | null)?.notice === 'string'
+      ? ((location.state as { notice: string }).notice)
+      : null
+  const [notice, setNotice] = useState<string | null>(initialNotice)
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -167,6 +180,27 @@ export function RouteDetail() {
       </div>
 
       <div className="body">
+        {notice && (
+          <div className="banner banner--success is-shown" role="status">
+            {notice}{' '}
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              aria-label="通知を閉じる"
+              style={{
+                marginLeft: 8,
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontSize: 'inherit',
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {state.kind === 'loading' && <div className="empty">読み込み中…</div>}
 
         {state.kind === 'not_found' && (
@@ -277,18 +311,12 @@ export function RouteDetail() {
             </div>
 
             <div className="actions">
-              {/*
-               * 編集画面 (US-006) は別 US で実装予定のため disabled + title で明示。
-               * 削除は本 US-005 内で実装し、確認ダイアログ + DELETE → 一覧へ navigate state 経由でバナー表示。
-               */}
-              <button
-                type="button"
+              <Link
+                to={`/routes/${state.route.id}/edit`}
                 className="btn btn-primary"
-                disabled
-                title="編集画面は US-006 で実装予定です"
               >
                 編集
-              </button>
+              </Link>
               <button
                 type="button"
                 className="btn btn-danger"

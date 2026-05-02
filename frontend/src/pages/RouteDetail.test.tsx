@@ -165,19 +165,15 @@ describe('RouteDetail', () => {
     ).toBeInTheDocument()
   })
 
-  it('編集ボタンは US-006 待ちで disabled + title 表示', async () => {
+  it('編集ボタンは /routes/:id/edit へのリンクとして有効化されている (US-006)', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify(ROUTE), { status: 200 }),
     )
     renderDetail()
     await screen.findByText('平日通勤')
 
-    const editBtn = screen.getByRole('button', { name: '編集' })
-    expect(editBtn).toBeDisabled()
-    expect(editBtn).toHaveAttribute(
-      'title',
-      expect.stringContaining('US-006'),
-    )
+    const editLink = screen.getByRole('link', { name: '編集' })
+    expect(editLink).toHaveAttribute('href', '/routes/r-001/edit')
   })
 
   it('削除ボタン: confirm キャンセルで DELETE は呼ばれない', async () => {

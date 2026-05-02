@@ -241,15 +241,13 @@ export function RouteList() {
                         >
                           詳細
                         </Link>
-                        <button
-                          type="button"
+                        <Link
+                          to={`/routes/${d.route.id}/edit`}
                           className="btn btn-secondary btn-sm"
-                          disabled
-                          title="編集画面は US-006 で実装予定です"
-                          aria-label={`経路「${d.displayName}」を編集 (未実装)`}
+                          aria-label={`経路「${d.displayName}」を編集`}
                         >
                           編集
-                        </button>
+                        </Link>
                         <button
                           type="button"
                           className="btn btn-danger btn-sm"
