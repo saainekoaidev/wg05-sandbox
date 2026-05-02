@@ -75,6 +75,8 @@ export function RouteList() {
   const [notice, setNotice] = useState<string | null>(initialNotice)
   const [routes, setRoutes] = useState<ApiRoute[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   // 認証確定後に一度だけ /api/routes を取得する。
@@ -135,6 +137,47 @@ export function RouteList() {
     navigate('/login', { replace: true })
   }
 
+  // 一覧から経路を削除する。設計書 §6.1 / §4 の文言を踏襲。
+  async function handleDelete(routeId: string) {
+    if (deletingId) return
+    if (!window.confirm('この経路を削除しますか?')) return
+    setDeletingId(routeId)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`http://localhost:3000/api/routes/${routeId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (res.status === 401) {
+        navigate('/login', { replace: true })
+        return
+      }
+      if (res.status === 403) {
+        setDeleteError('この経路を削除する権限がありません')
+        return
+      }
+      if (res.status === 404) {
+        // 既に削除されている可能性: ローカル状態からも除去して整合させる
+        setRoutes((prev) => (prev ? prev.filter((r) => r.id !== routeId) : prev))
+        setDeleteError(
+          '該当の経路が見つかりませんでした (既に削除されている可能性があります)',
+        )
+        return
+      }
+      if (!res.ok) {
+        setDeleteError('経路の削除に失敗しました。再度お試しください')
+        return
+      }
+      // 成功: ローカル状態から除去 + 通知バナー表示
+      setRoutes((prev) => (prev ? prev.filter((r) => r.id !== routeId) : prev))
+      setNotice('経路を削除しました')
+    } catch {
+      setDeleteError('経路の削除に失敗しました。再度お試しください')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div className="shell shell--wide">
       <div className="head">
@@ -177,6 +220,27 @@ export function RouteList() {
         {loading && <div className="empty">読み込み中…</div>}
 
         {error && <div className="banner is-shown">{error}</div>}
+
+        {deleteError && (
+          <div className="banner is-shown" role="alert">
+            {deleteError}{' '}
+            <button
+              type="button"
+              onClick={() => setDeleteError(null)}
+              aria-label="エラーを閉じる"
+              style={{
+                marginLeft: 8,
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontSize: 'inherit',
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {!loading && !error && derived && derived.length === 0 && (
           <div className="empty">
@@ -229,11 +293,6 @@ export function RouteList() {
                     <td className="col-num">¥{d.total.toLocaleString()}</td>
                     <td>
                       <div className="col-actions">
-                        {/*
-                         * 行内アクションは設計書 §4 通り 詳細 / 編集 / 削除 の3種を描画する。
-                         * 詳細 (US-005) は本 US で遷移先を実装したため Link で有効化。
-                         * 編集 (US-006) / 削除 (US-007) は別 US で実装予定のため disabled + title で明示。
-                         */}
                         <Link
                           to={`/routes/${d.route.id}`}
                           className="btn btn-secondary btn-sm"
@@ -251,11 +310,11 @@ export function RouteList() {
                         <button
                           type="button"
                           className="btn btn-danger btn-sm"
-                          disabled
-                          title="削除機能は US-007 で実装予定です"
-                          aria-label={`経路「${d.displayName}」を削除 (未実装)`}
+                          disabled={deletingId === d.route.id}
+                          aria-label={`経路「${d.displayName}」を削除`}
+                          onClick={() => handleDelete(d.route.id)}
                         >
-                          削除
+                          {deletingId === d.route.id ? '削除中…' : '削除'}
                         </button>
                       </div>
                     </td>

@@ -180,7 +180,7 @@ describe('RouteList', () => {
     expect(await screen.findByText('(無題)')).toBeInTheDocument()
   })
 
-  it('行内アクション: 詳細・編集はリンク有効化 (US-005/006), 削除は disabled で title が付く', async () => {
+  it('行内アクション: 詳細・編集・削除がそれぞれ有効化されている', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
     )
@@ -195,8 +195,7 @@ describe('RouteList', () => {
 
     expect(detailLink).toHaveAttribute('href', '/routes/r-a')
     expect(editLink).toHaveAttribute('href', '/routes/r-a/edit')
-    expect(deleteBtn).toBeDisabled()
-    expect(deleteBtn).toHaveAttribute('title', expect.stringContaining('US-007'))
+    expect(deleteBtn).not.toBeDisabled()
   })
 
   it('複数経路がレスポンス順 (updatedAt DESC) で表示される', async () => {
@@ -331,5 +330,183 @@ describe('RouteList', () => {
     expect(
       screen.queryByText(/経路を削除しました/),
     ).not.toBeInTheDocument()
+  })
+
+  describe('削除 (US-007)', () => {
+    it('削除ボタン押下で確認ダイアログを出し, キャンセルなら fetch しない', async () => {
+      const user = userEvent.setup()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+      )
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+        await user.click(screen.getByRole('button', { name: /削除/ }))
+
+        expect(confirmSpy).toHaveBeenCalledWith('この経路を削除しますか?')
+        // fetch は初回の一覧取得のみ
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        // 行はそのまま残っている
+        expect(screen.getByText('平日通勤')).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('OK 押下で DELETE が走り, 行が消えて成功バナーが出る', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ routes: [ROUTE_A, ROUTE_B] }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+
+        const row = screen.getByText('平日通勤').closest('tr')!
+        await user.click(within(row as HTMLElement).getByRole('button', { name: /削除/ }))
+
+        await waitFor(() => {
+          expect(screen.queryByText('平日通勤')).not.toBeInTheDocument()
+        })
+        // 残っているのは ROUTE_B のみ
+        expect(screen.getByText('(無題)')).toBeInTheDocument()
+        // 成功バナー
+        expect(screen.getByText(/経路を削除しました/)).toBeInTheDocument()
+
+        // 2回目の fetch は DELETE
+        const [url, init] = fetchMock.mock.calls[1]!
+        expect(url).toContain('/api/routes/r-a')
+        expect(init.method).toBe('DELETE')
+        expect(init.credentials).toBe('include')
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('DELETE 401 なら /login にリダイレクト', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }),
+        )
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+        await user.click(screen.getByRole('button', { name: /削除/ }))
+        await waitFor(() => {
+          expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument()
+        })
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('DELETE 403 なら権限エラーバナーを表示し行は残る', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 }),
+        )
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+        await user.click(screen.getByRole('button', { name: /削除/ }))
+
+        expect(
+          await screen.findByText('この経路を削除する権限がありません'),
+        ).toBeInTheDocument()
+        // 行は残る
+        expect(screen.getByText('平日通勤')).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('DELETE 404 なら行は消し, 既に削除済みである旨のバナーを出す', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: 'not_found' }), { status: 404 }),
+        )
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+        await user.click(screen.getByRole('button', { name: /削除/ }))
+
+        await waitFor(() => {
+          expect(screen.queryByText('平日通勤')).not.toBeInTheDocument()
+        })
+        expect(
+          screen.getByText(/該当の経路が見つかりませんでした/),
+        ).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('DELETE 500 なら失敗バナーを表示し行は残る', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(new Response('Server Error', { status: 500 }))
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+        await user.click(screen.getByRole('button', { name: /削除/ }))
+
+        expect(
+          await screen.findByText(
+            '経路の削除に失敗しました。再度お試しください',
+          ),
+        ).toBeInTheDocument()
+        expect(screen.getByText('平日通勤')).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('fetch 例外でも失敗バナーを表示する', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+        )
+        .mockRejectedValueOnce(new Error('network down'))
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        renderRouteList()
+        await screen.findByText('平日通勤')
+        await user.click(screen.getByRole('button', { name: /削除/ }))
+
+        expect(
+          await screen.findByText(
+            '経路の削除に失敗しました。再度お試しください',
+          ),
+        ).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
   })
 })

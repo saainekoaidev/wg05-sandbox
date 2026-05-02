@@ -102,7 +102,7 @@ test.describe('US-004 経路一覧フロー', () => {
     expect(idxOld).toBeGreaterThan(idxNew)
   })
 
-  test('行内アクション: 詳細・編集はリンク有効化 (US-005/006), 削除は disabled', async ({
+  test('行内アクション: 詳細・編集・削除がいずれも有効化されている', async ({
     page,
   }) => {
     await loginViaUi(page)
@@ -124,7 +124,62 @@ test.describe('US-004 経路一覧フロー', () => {
       'href',
       /\/routes\/[^/]+\/edit$/,
     )
-    await expect(row.getByRole('button', { name: /削除/ })).toBeDisabled()
+    await expect(row.getByRole('button', { name: /削除/ })).toBeEnabled()
+  })
+
+  test('一覧から削除: 確認ダイアログ承諾で行が消え, 成功バナーが表示される', async ({
+    page,
+  }) => {
+    await loginViaUi(page)
+    const name = `E2EListDelete-${RUN_TAG}`
+    await registerRouteViaUi(page, {
+      name,
+      from: '渋谷',
+      to: '東京',
+      fare: '210',
+    })
+
+    // 行が出ていることを確認
+    const row = page.locator('table tbody tr', { hasText: name })
+    await expect(row).toHaveCount(1)
+
+    // confirm はデフォルトで accept
+    page.once('dialog', (dialog) => {
+      // 設計書 §6.1 の文言を確認
+      expect(dialog.message()).toBe('この経路を削除しますか?')
+      void dialog.accept()
+    })
+    await row.getByRole('button', { name: /削除/ }).click()
+
+    // 行が消える
+    await expect(row).toHaveCount(0)
+    // 成功バナー
+    await expect(page.getByText('経路を削除しました')).toBeVisible()
+  })
+
+  test('一覧から削除: 確認ダイアログをキャンセルすると行は残る', async ({
+    page,
+  }) => {
+    await loginViaUi(page)
+    const name = `E2EListCancel-${RUN_TAG}`
+    await registerRouteViaUi(page, {
+      name,
+      from: '新宿',
+      to: '東京',
+      fare: '170',
+    })
+
+    const row = page.locator('table tbody tr', { hasText: name })
+    await expect(row).toHaveCount(1)
+
+    page.once('dialog', (dialog) => {
+      void dialog.dismiss()
+    })
+    await row.getByRole('button', { name: /削除/ }).click()
+
+    // 行は残る (削除 fetch も走らないので即時で良い)
+    await expect(row).toHaveCount(1)
+    await expect(page.getByText('経路を削除しました')).toHaveCount(0)
   })
 
   test('未ログインで /routes に直接アクセスすると /login にリダイレクトされる', async ({
