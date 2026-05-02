@@ -73,6 +73,8 @@
 
 すべての画面は共通カード `.shell` を中心に構成し、上部に `.head`（青グラデの帯 + 画面タイトル + サブテキスト）、中央に本体、下部に `.foot`（補助リンク・ログアウト等）を配置する。
 
+> 共通スタイル (`.shell` `.btn` `.group` 等) の **一次正は [frontend/src/styles/app.css](../frontend/src/styles/app.css)** に置く。docs/ui-images/ 以下の HTML モックと style.css は設計フェーズの凍結スナップショットとして保持する。詳細は [ADR 0003](adr/0003-design-system-source.md) を参照。
+
 | パーツ | 用途 | 主要 class |
 | --- | --- | --- |
 | `.shell` | カード本体 | 基本 560px、一覧/詳細/編集/駅マスタ参照は `.shell--wide` (920px) |

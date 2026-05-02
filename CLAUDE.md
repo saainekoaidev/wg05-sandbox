@@ -67,4 +67,6 @@ Tier 2 (余裕があれば追加): gh CLI + GitHub MCP server / Claude Code GitH
 
 画面に関する判断 (画面構成・遷移・操作フロー・主要なUI要素) を行った場合は, docs/ui.md に反映する。画面仕様の変更履歴がこのファイルに集約されることで, UIの最新状態が常に1か所で確認できる状態を保つ。
 
+共通 CSS (`.shell` / `.btn` / `.group` 等のデザインシステム) の一次正は frontend/src/styles/app.css に置く。実装フェーズ以降、CSS の修正は本ファイルにのみ行う。docs/ui-images/ 配下の HTML モックと style.css は設計フェーズの凍結スナップショットとして維持し、原則として更新しない (詳細は docs/adr/0003-design-system-source.md)。
+
 要点は ｢判断や変更は必ず該当ドキュメント (ADR / requirements.md / ui.md) に先に書く → そこから派生作業｣ という single source of truth の徹底。
