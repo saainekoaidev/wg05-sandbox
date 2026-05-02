@@ -54,6 +54,12 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma migrate deploy
 
+      # マスタ (Line / Station / StationLine) を seed する。
+      # E2E の経路登録 / 駅マスタ参照は Line FK と Station 検索結果に依存するため必須。
+      - name: Seed master data (Line / Station / StationLine)
+        working-directory: backend
+        run: pnpm exec prisma db seed
+
       - name: Build (frontend + backend)
         run: pnpm -r build
 

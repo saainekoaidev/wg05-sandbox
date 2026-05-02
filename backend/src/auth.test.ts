@@ -52,12 +52,10 @@ function buildCookieHeader(res: Response): string {
 
 beforeEach(async () => {
   // User 削除で Session / Account / Route / RouteSegment が CASCADE で消える。
-  // それ以外のマスタ系も明示削除して状態をリセットする。
+  // マスタ系 (Line / Station / StationLine) は global-setup で 1 回だけ seed しており、
+  // run 全体で保持するためここでは削除しない。
   await prisma.user.deleteMany()
   await prisma.verification.deleteMany()
-  await prisma.stationLine.deleteMany()
-  await prisma.station.deleteMany()
-  await prisma.line.deleteMany()
 })
 
 afterAll(async () => {
