@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ===== better-auth required models =====
+// ===== better-auth required models (step 13 で導入済み、保持) =====
 model User {
   id            String    @id
   name          String
@@ -60,25 +60,69 @@ model Verification {
 }
 
 // ===== domain models (US-003 to US-007) =====
+
+/// 通勤経路 (1ユーザにつき複数件保持可)。
+/// fromStation / toStation は入力項目ではなく、segments の端点
+/// (orderIndex 最小/最大) からサーバ保存時に派生算出する派生フィールド。
 model Route {
-  id          String    @id @default(cuid())
+  id          String         @id @default(cuid())
   userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String?
   fromStation String
   toStation   String
-  segments    Segment[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  segments    RouteSegment[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 }
 
-model Segment {
-  id          String @id @default(cuid())
+/// 経路区間 (1経路につき 1〜10件)。
+/// kind は "train" | "subway" | "bus" | "other" のいずれか (app 層 zod で検証)。
+/// fromStation / toStation はフリー入力許容のため Station マスタへの FK にしない。
+model RouteSegment {
+  id          String  @id @default(cuid())
   routeId     String
-  route       Route  @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  route       Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
   orderIndex  Int
+  kind        String
+  lineId      String?
+  line        Line?   @relation(fields: [lineId], references: [id], onDelete: SetNull)
   fromStation String
   toStation   String
   fare        Int
 
   @@index([routeId, orderIndex])
+  @@index([lineId])
+}
+
+/// 路線マスタ (経路登録の路線セレクト + 駅マスタ検索のフィルタで参照)。
+/// id は手動採番のスラッグを想定 (例: "jr-yamanote")。
+model Line {
+  id           String         @id
+  kind         String
+  name         String         @unique
+  operator     String?
+  segments     RouteSegment[]
+  stationLinks StationLine[]
+}
+
+/// 駅 / 停留所マスタ。種別 (kind) は持たず、接続する Line(s) から派生表示する。
+model Station {
+  id        String        @id @default(cuid())
+  name      String
+  kana      String
+  lineLinks StationLine[]
+
+  @@index([name])
+}
+
+/// Station ↔ Line の M:N 中間テーブル。
+model StationLine {
+  stationId String
+  station   Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  lineId    String
+  line      Line    @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@id([stationId, lineId])
+  @@index([lineId])
 }
