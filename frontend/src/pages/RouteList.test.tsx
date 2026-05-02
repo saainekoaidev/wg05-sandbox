@@ -15,12 +15,18 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
-function renderRouteList() {
+function renderRouteList(state?: { notice?: string }) {
   return render(
-    <MemoryRouter initialEntries={['/routes']}>
+    <MemoryRouter
+      initialEntries={[{ pathname: '/routes', state: state ?? null }]}
+    >
       <Routes>
         <Route path="/routes" element={<RouteList />} />
         <Route path="/routes/new" element={<div>ROUTE_REGISTER_PAGE</div>} />
+        <Route
+          path="/routes/:id"
+          element={<div>ROUTE_DETAIL_PAGE</div>}
+        />
         <Route path="/login" element={<div>LOGIN_PAGE</div>} />
       </Routes>
     </MemoryRouter>,
@@ -174,7 +180,7 @@ describe('RouteList', () => {
     expect(await screen.findByText('(無題)')).toBeInTheDocument()
   })
 
-  it('行内アクション (詳細 / 編集 / 削除) は描画されるが disabled で title が付く', async () => {
+  it('行内アクション: 詳細はリンク有効化 (US-005), 編集 / 削除 は disabled で title が付く', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
     )
@@ -183,14 +189,13 @@ describe('RouteList', () => {
     const row = (await screen.findByText('平日通勤')).closest('tr')!
     const utils = within(row as HTMLElement)
 
-    const detailBtn = utils.getByRole('button', { name: /詳細/ })
+    const detailLink = utils.getByRole('link', { name: /詳細/ })
     const editBtn = utils.getByRole('button', { name: /編集/ })
     const deleteBtn = utils.getByRole('button', { name: /削除/ })
 
-    expect(detailBtn).toBeDisabled()
+    expect(detailLink).toHaveAttribute('href', '/routes/r-a')
     expect(editBtn).toBeDisabled()
     expect(deleteBtn).toBeDisabled()
-    expect(detailBtn).toHaveAttribute('title', expect.stringContaining('US-005'))
     expect(editBtn).toHaveAttribute('title', expect.stringContaining('US-006'))
     expect(deleteBtn).toHaveAttribute('title', expect.stringContaining('US-007'))
   })
@@ -287,5 +292,45 @@ describe('RouteList', () => {
     // ヘッダの「+ 新規登録」リンクは1個 (空状態でないため)
     await user.click(screen.getByRole('link', { name: '+ 新規登録' }))
     expect(screen.getByText('ROUTE_REGISTER_PAGE')).toBeInTheDocument()
+  })
+
+  it('詳細リンク押下で /routes/:id に遷移する (US-005 で有効化)', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
+    )
+    renderRouteList()
+    await screen.findByText('平日通勤')
+
+    await user.click(screen.getByRole('link', { name: /詳細/ }))
+    expect(screen.getByText('ROUTE_DETAIL_PAGE')).toBeInTheDocument()
+  })
+
+  it('navigate state.notice があればバナーで通知が表示される (削除完了想定)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ routes: [] }), { status: 200 }),
+    )
+    renderRouteList({ notice: '経路を削除しました' })
+
+    expect(
+      await screen.findByText(/経路を削除しました/),
+    ).toBeInTheDocument()
+  })
+
+  it('通知バナーの「×」で notice を閉じられる', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ routes: [] }), { status: 200 }),
+    )
+    renderRouteList({ notice: '経路を削除しました' })
+
+    expect(
+      await screen.findByText(/経路を削除しました/),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '通知を閉じる' }))
+    expect(
+      screen.queryByText(/経路を削除しました/),
+    ).not.toBeInTheDocument()
   })
 })

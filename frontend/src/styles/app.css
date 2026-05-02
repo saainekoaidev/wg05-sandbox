@@ -550,6 +550,12 @@ tbody tr:hover { background: var(--blue-50); }
   display: none; /* default hidden, JS controlled */
 }
 .banner.is-shown { display: block; }
+/* 成功通知用バリアント (削除完了メッセージ等). 既定の赤バナーから青系に上書き */
+.banner--success {
+  background: var(--blue-100);
+  color: var(--blue-700);
+  border: 1px solid rgba(36, 86, 201, 0.20);
+}
 
 /* フッター */
 .foot {
