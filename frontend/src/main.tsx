@@ -7,6 +7,7 @@ import {
   Routes,
 } from 'react-router-dom'
 import { Login } from './pages/Login'
+import { Register } from './pages/Register'
 import { RoutesStub } from './pages/RoutesStub'
 import './styles/app.css'
 
@@ -16,6 +17,7 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route path="/routes" element={<RoutesStub />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
