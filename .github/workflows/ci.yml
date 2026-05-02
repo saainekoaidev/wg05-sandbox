@@ -5,10 +5,11 @@ on:
   pull_request:
     branches: [main]
 
-# 同一ブランチに連続 push したとき、進行中の古い run を自動キャンセルして CI 時間を節約する
+# 同一 ref への連続 push で進行中の旧 run を自動キャンセル。
+# main は merge 後の検証が後続 push でキャンセルされないように対象外にする。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
@@ -28,7 +29,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
@@ -48,7 +49,7 @@ jobs:
         run: pnpm exec prisma generate
 
       # E2E で起動する dev サーバが使う dev.db に migrations を適用する。
-      # backend Vitest は test/setup.ts が test.db を別途用意するため影響しない。
+      # backend Vitest は globalSetup が test.db を別途用意するため影響しない。
       - name: Apply Prisma migrations to dev DB
         working-directory: backend
         run: pnpm exec prisma migrate deploy
@@ -62,18 +63,43 @@ jobs:
       - name: Frontend unit tests (Vitest)
         run: pnpm --filter frontend test
 
-      - name: Install Playwright browsers
+      # Playwright のブラウザ実体は ~/.cache/ms-playwright に入る。
+      # バージョンをキーにキャッシュし、ヒット時はシステム依存のみ再導入する (~100MB の DL を回避)。
+      - name: Get Playwright version
+        id: playwright-version
+        shell: bash
+        run: |
+          version=$(pnpm exec playwright --version | awk '{print $2}')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install chromium --with-deps
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
 
       - name: E2E tests (Playwright)
         run: pnpm test:e2e
         env:
           CI: 'true'
 
-      - name: Upload Playwright report on failure
+      # 失敗時は html report に加え、test-results/ (trace.zip / screenshot / video) も保存して
+      # 失敗の再現と原因特定をしやすくする。
+      - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7

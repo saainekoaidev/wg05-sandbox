@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test'
 
-const TEST_EMAIL = 'e2e-login@example.com'
+// テスト run 内で一意なメールアドレスを使う (ローカル dev.db への蓄積汚染を抑え、
+// 並列ワーカ間で同一ユーザを取り合うリスクも避ける)。
+const RUN_TAG = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+const TEST_EMAIL = `e2e-login-${RUN_TAG}@example.com`
 const TEST_PASSWORD = 'TestE2E1234'
 const TEST_NAME = 'E2E Login User'
 
@@ -55,7 +58,9 @@ test.describe('US-002 ログインフロー', () => {
   }) => {
     await page.goto('/login')
 
-    await page.getByLabel(/メールアドレス/).fill('not-registered@example.com')
+    // run ごとに一意な値で「未登録である」状態を確実にする
+    const unregistered = `not-registered-${RUN_TAG}@example.com`
+    await page.getByLabel(/メールアドレス/).fill(unregistered)
     await page.getByLabel(/パスワード/).fill('AnyPassword123')
     await page.getByRole('button', { name: 'ログイン' }).click()
 
