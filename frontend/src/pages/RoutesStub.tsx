@@ -1,9 +1,10 @@
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { signOut, useSession } from '../lib/auth'
 
 /**
  * US-002 のログイン成功遷移先として用意した最小スタブ。
  * US-004 (経路一覧) の本実装で置き換える前提。
+ * US-003 着手時に、新規登録への導線として「+ 新規登録」リンクを追加した。
  */
 export function RoutesStub() {
   const { data: session, isPending } = useSession()
@@ -25,6 +26,11 @@ export function RoutesStub() {
             <div className="brand">Routes</div>
             <h1>通勤経路一覧</h1>
             <p>(US-004 の実装で本画面に差し替え予定)</p>
+          </div>
+          <div>
+            <Link to="/routes/new" className="btn btn-primary btn-sm">
+              + 新規登録
+            </Link>
           </div>
         </div>
       </div>
