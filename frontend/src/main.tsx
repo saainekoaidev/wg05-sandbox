@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
+import { RouteDetail } from './pages/RouteDetail'
 import { RouteList } from './pages/RouteList'
 import { RouteRegister } from './pages/RouteRegister'
 import { StationPicker } from './pages/StationPicker'
@@ -22,6 +23,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/register" element={<Register />} />
         <Route path="/routes" element={<RouteList />} />
         <Route path="/routes/new" element={<RouteRegister />} />
+        <Route path="/routes/:id" element={<RouteDetail />} />
         <Route path="/stations" element={<StationPicker />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

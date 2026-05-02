@@ -118,6 +118,44 @@ app.get('/api/routes', async (c) => {
 })
 
 // =====================================================================
+// 経路詳細 / 削除 (US-005)
+// screen_design_route_detail.md に従い、認証 + オーナーチェックを必須にする。
+// 他人の経路へのアクセスは 403 (情報漏洩を許容: ID の存在自体は隠さない)。
+// =====================================================================
+
+app.get('/api/routes/:id', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  const id = c.req.param('id')
+  const route = await prisma.route.findUnique({
+    where: { id },
+    include: { segments: { orderBy: { orderIndex: 'asc' } } },
+  })
+  if (!route) return c.json({ error: 'not_found' }, 404)
+  if (route.userId !== session.user.id) {
+    return c.json({ error: 'forbidden' }, 403)
+  }
+  return c.json(route)
+})
+
+app.delete('/api/routes/:id', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  const id = c.req.param('id')
+  const route = await prisma.route.findUnique({ where: { id } })
+  if (!route) return c.json({ error: 'not_found' }, 404)
+  if (route.userId !== session.user.id) {
+    return c.json({ error: 'forbidden' }, 403)
+  }
+
+  // RouteSegment は onDelete: Cascade で連鎖削除される (schema.prisma)。
+  await prisma.route.delete({ where: { id } })
+  return c.json({ ok: true })
+})
+
+// =====================================================================
 // 駅マスタ参照 (US-003 / US-006 サポート, screen_design_station_master.md)
 // =====================================================================
 

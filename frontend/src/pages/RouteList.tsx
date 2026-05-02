@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { signOut, useSession } from '../lib/auth'
 import { LINES, type LineKind } from '../lib/lines'
 
@@ -65,6 +65,14 @@ function totalFare(segments: ApiSegment[]): number {
 export function RouteList() {
   const { data: session, isPending } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
+  // 削除完了などの通知バナーは前画面 (RouteDetail) からの navigate state で受け取る。
+  // 1度きりの表示にするため初期値だけ拾い、画面内アクションでは更新しない。
+  const initialNotice =
+    typeof (location.state as { notice?: unknown } | null)?.notice === 'string'
+      ? ((location.state as { notice: string }).notice)
+      : null
+  const [notice, setNotice] = useState<string | null>(initialNotice)
   const [routes, setRoutes] = useState<ApiRoute[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -145,6 +153,27 @@ export function RouteList() {
       </div>
 
       <div className="body">
+        {notice && (
+          <div className="banner banner--success is-shown" role="status">
+            {notice}{' '}
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              aria-label="通知を閉じる"
+              style={{
+                marginLeft: 8,
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontSize: 'inherit',
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {loading && <div className="empty">読み込み中…</div>}
 
         {error && <div className="banner is-shown">{error}</div>}
@@ -201,19 +230,17 @@ export function RouteList() {
                     <td>
                       <div className="col-actions">
                         {/*
-                         * 行内アクションは設計書 §4 の通り 詳細 / 編集 / 削除 の3種を描画する。
-                         * 詳細 (US-005) / 編集 (US-006) / 削除 (US-007) は別 US で実装予定のため、
-                         * 本フェーズでは disabled + title でスコープ外であることを明示する。
+                         * 行内アクションは設計書 §4 通り 詳細 / 編集 / 削除 の3種を描画する。
+                         * 詳細 (US-005) は本 US で遷移先を実装したため Link で有効化。
+                         * 編集 (US-006) / 削除 (US-007) は別 US で実装予定のため disabled + title で明示。
                          */}
-                        <button
-                          type="button"
+                        <Link
+                          to={`/routes/${d.route.id}`}
                           className="btn btn-secondary btn-sm"
-                          disabled
-                          title="詳細画面は US-005 で実装予定です"
-                          aria-label={`経路「${d.displayName}」の詳細 (未実装)`}
+                          aria-label={`経路「${d.displayName}」の詳細`}
                         >
                           詳細
-                        </button>
+                        </Link>
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
