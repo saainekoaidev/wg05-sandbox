@@ -20,7 +20,9 @@ async function loginAndGoToRouteRegister(page: Page) {
   await page.getByLabel(/パスワード/).fill(TEST_PASSWORD)
   await page.getByRole('button', { name: 'ログイン' }).click()
   await expect(page).toHaveURL('/routes')
-  await page.getByRole('link', { name: '+ 新規登録' }).click()
+  // 経路一覧 (US-004) には 0件時にヘッダ + 空状態の 2箇所に「+ 新規登録」があるため、
+  // 先頭 (ヘッダ右) を明示的に選ぶ。
+  await page.getByRole('link', { name: '+ 新規登録' }).first().click()
   await expect(page).toHaveURL('/routes/new')
 }
 

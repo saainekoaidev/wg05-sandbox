@@ -98,6 +98,26 @@ app.post('/api/routes', async (c) => {
 })
 
 // =====================================================================
+// 経路一覧 (US-004)
+// screen_design_route_list.md に従い、ログイン中ユーザの経路のみ返す。
+// 並び順は updatedAt DESC (運用観点で「直近の更新が上」)。
+// segments を同梱して、合計運賃 / 種別タグ / 路線サマリ をクライアント側で派生表示する。
+// =====================================================================
+
+app.get('/api/routes', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  const routes = await prisma.route.findMany({
+    where: { userId: session.user.id },
+    include: { segments: { orderBy: { orderIndex: 'asc' } } },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  return c.json({ routes })
+})
+
+// =====================================================================
 // 駅マスタ参照 (US-003 / US-006 サポート, screen_design_station_master.md)
 // =====================================================================
 

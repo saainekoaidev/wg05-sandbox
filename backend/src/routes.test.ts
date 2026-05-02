@@ -51,6 +51,14 @@ async function postRoutes(cookie: string | null, body: unknown): Promise<Respons
   )
 }
 
+async function getRoutes(cookie: string | null): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/routes', { method: 'GET', headers }),
+  )
+}
+
 async function getStations(cookie: string | null, query: string): Promise<Response> {
   const headers: Record<string, string> = {}
   if (cookie) headers.cookie = cookie
@@ -268,6 +276,142 @@ describe('POST /api/routes (US-003 経路登録)', () => {
     expect(aliceRoutes[0]!.fromStation).toBe('A')
     expect(bobRoutes).toHaveLength(1)
     expect(bobRoutes[0]!.fromStation).toBe('C')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/routes (US-004 経路一覧)
+// ---------------------------------------------------------------------------
+
+describe('GET /api/routes (US-004 経路一覧)', () => {
+  it('未認証では 401', async () => {
+    const res = await getRoutes(null)
+    expect(res.status).toBe(401)
+  })
+
+  it('未登録ユーザは空配列を返す (200, routes=[])', async () => {
+    const cookie = await signUpAndGetCookie('list1@example.com', 'Test1234')
+    const res = await getRoutes(cookie)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual({ routes: [] })
+  })
+
+  it('呼出元ユーザの経路のみ返り、他ユーザの経路は混入しない (オーナー分離)', async () => {
+    const cookieA = await signUpAndGetCookie(
+      'alice2@example.com',
+      'Test1234',
+      'Alice',
+    )
+    const cookieB = await signUpAndGetCookie(
+      'bob2@example.com',
+      'Test1234',
+      'Bob',
+    )
+
+    await postRoutes(cookieA, {
+      name: 'Alice 通勤',
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+    await postRoutes(cookieB, {
+      name: 'Bob 通勤',
+      segments: [{ kind: 'train', fromStation: 'C', toStation: 'D', fare: 200 }],
+    })
+
+    const aliceRes = await getRoutes(cookieA)
+    const aliceBody = await aliceRes.json()
+    expect(aliceBody.routes).toHaveLength(1)
+    expect(aliceBody.routes[0].name).toBe('Alice 通勤')
+
+    const bobRes = await getRoutes(cookieB)
+    const bobBody = await bobRes.json()
+    expect(bobBody.routes).toHaveLength(1)
+    expect(bobBody.routes[0].name).toBe('Bob 通勤')
+  })
+
+  it('updatedAt DESC で並ぶ (新しく作った経路が先頭)', async () => {
+    const cookie = await signUpAndGetCookie('list2@example.com', 'Test1234')
+
+    // 順次作成 (Prisma の @updatedAt は作成時にも入る)
+    await postRoutes(cookie, {
+      name: 'oldest',
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+    // SQLite の DateTime 解像度が低いケースに備え僅かに待つ
+    await new Promise((r) => setTimeout(r, 10))
+    await postRoutes(cookie, {
+      name: 'middle',
+      segments: [{ kind: 'train', fromStation: 'C', toStation: 'D', fare: 200 }],
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    await postRoutes(cookie, {
+      name: 'newest',
+      segments: [{ kind: 'train', fromStation: 'E', toStation: 'F', fare: 300 }],
+    })
+
+    const res = await getRoutes(cookie)
+    const body = await res.json()
+    expect(body.routes.map((r: { name: string }) => r.name)).toEqual([
+      'newest',
+      'middle',
+      'oldest',
+    ])
+  })
+
+  it('各経路に segments が orderIndex 昇順で同梱される', async () => {
+    const cookie = await signUpAndGetCookie('list3@example.com', 'Test1234')
+    await postRoutes(cookie, {
+      name: 'multi',
+      segments: [
+        { kind: 'train', fromStation: '渋谷', toStation: '表参道', fare: 160 },
+        {
+          kind: 'subway',
+          lineId: 'metro-ginza',
+          fromStation: '表参道',
+          toStation: '神田',
+          fare: 160,
+        },
+      ],
+    })
+
+    const res = await getRoutes(cookie)
+    const body = await res.json()
+    expect(body.routes).toHaveLength(1)
+    const route = body.routes[0]
+    expect(route.segments).toHaveLength(2)
+    expect(route.segments[0].orderIndex).toBe(1)
+    expect(route.segments[1].orderIndex).toBe(2)
+    expect(route.segments[0].fromStation).toBe('渋谷')
+    expect(route.segments[1].toStation).toBe('神田')
+    expect(route.fromStation).toBe('渋谷')
+    expect(route.toStation).toBe('神田')
+  })
+
+  it('期待されるフィールド (id / name / fromStation / toStation / createdAt / updatedAt / segments) が揃う', async () => {
+    const cookie = await signUpAndGetCookie('list4@example.com', 'Test1234')
+    await postRoutes(cookie, {
+      name: 'shape-test',
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+
+    const res = await getRoutes(cookie)
+    const body = await res.json()
+    const route = body.routes[0]
+    expect(route).toHaveProperty('id')
+    expect(route).toHaveProperty('name', 'shape-test')
+    expect(route).toHaveProperty('fromStation', 'A')
+    expect(route).toHaveProperty('toStation', 'B')
+    expect(route).toHaveProperty('createdAt')
+    expect(route).toHaveProperty('updatedAt')
+    expect(Array.isArray(route.segments)).toBe(true)
+    expect(route.segments[0]).toMatchObject({
+      kind: 'train',
+      lineId: null,
+      fromStation: 'A',
+      toStation: 'B',
+      fare: 100,
+      orderIndex: 1,
+    })
   })
 })
 
