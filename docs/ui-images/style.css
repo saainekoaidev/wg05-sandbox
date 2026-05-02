@@ -1,6 +1,10 @@
 /* WG05 通勤経路登録システム 共通スタイル
  * register.html (S01 サインアップ) のスタイルを基底とし,
  * 一覧画面 (table) / 詳細画面 (read-only display) / 区間入力 (動的 form) の追加要素を加える。
+ *
+ * ※ 設計フェーズの凍結スナップショット。実装フェーズ以降の一次正は
+ *   frontend/src/styles/app.css に移管している (詳細は docs/adr/0003-design-system-source.md)。
+ *   本ファイルは設計レビュー時点の姿を保つために維持しており、原則として更新しない。
  */
 
 :root {
