@@ -156,6 +156,95 @@ app.delete('/api/routes/:id', async (c) => {
 })
 
 // =====================================================================
+// 経路編集 (US-006)
+// PUT /api/routes/:id: 経路を上書き更新する。
+// 楽観ロック: クライアントから送信された updatedAt が DB の値と一致しない場合 409。
+// 区間は (deleteMany + create) で全置換する (design.md §7.2)。
+// =====================================================================
+
+const RouteUpdateInput = z.object({
+  name: z.string().max(50).nullable().optional(),
+  // クライアントが GET 時に受け取った Route.updatedAt をそのまま送り返す前提
+  updatedAt: z.string().min(1),
+  segments: z.array(SegmentInput).min(1).max(10),
+})
+
+app.put('/api/routes/:id', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  const id = c.req.param('id')
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+
+  const parsed = RouteUpdateInput.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+
+  const existing = await prisma.route.findUnique({
+    where: { id },
+    include: { segments: { orderBy: { orderIndex: 'asc' } } },
+  })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+  if (existing.userId !== session.user.id) {
+    return c.json({ error: 'forbidden' }, 403)
+  }
+
+  // 楽観排他: クライアントの updatedAt と DB の updatedAt を ms 単位で比較。
+  // 一致しなければ 409 を返し、最新値をクライアントに返して再ロードを促す。
+  const clientTime = new Date(parsed.data.updatedAt).getTime()
+  const serverTime = existing.updatedAt.getTime()
+  if (Number.isNaN(clientTime) || clientTime !== serverTime) {
+    return c.json(
+      {
+        error: 'conflict',
+        message:
+          '他の場所で更新されたため最新の状態を再読込しました。再度ご確認ください',
+        current: existing,
+      },
+      409,
+    )
+  }
+
+  const { name, segments } = parsed.data
+  const fromStation = segments[0]!.fromStation
+  const toStation = segments[segments.length - 1]!.toStation
+
+  const updated = await prisma.route.update({
+    where: { id },
+    data: {
+      name: name ?? null,
+      fromStation,
+      toStation,
+      // 既存 RouteSegment を全削除して再作成する (区間構造の差分検知が複雑なため簡易戦略)。
+      // Prisma のネスト書きで deleteMany → create の順に実行される。
+      segments: {
+        deleteMany: {},
+        create: segments.map((s, i) => ({
+          orderIndex: i + 1,
+          kind: s.kind,
+          lineId: s.lineId ?? null,
+          fromStation: s.fromStation,
+          toStation: s.toStation,
+          fare: s.fare,
+        })),
+      },
+    },
+    include: { segments: { orderBy: { orderIndex: 'asc' } } },
+  })
+
+  return c.json(updated)
+})
+
+// =====================================================================
 // 駅マスタ参照 (US-003 / US-006 サポート, screen_design_station_master.md)
 // =====================================================================
 
