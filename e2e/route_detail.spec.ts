@@ -91,7 +91,9 @@ test.describe('US-005 経路詳細 / 削除フロー', () => {
     await expect(page).toHaveURL('/routes')
   })
 
-  test('編集ボタンは disabled (US-006 で実装予定)', async ({ page }) => {
+  test('編集ボタンは /routes/:id/edit へのリンクとして有効化されている (US-006)', async ({
+    page,
+  }) => {
     const name = `E2EEditBtn-${RUN_TAG}`
     await loginViaUi(page)
     await registerRouteViaUi(page, {
@@ -102,10 +104,12 @@ test.describe('US-005 経路詳細 / 削除フロー', () => {
     })
     const row = page.locator('table tbody tr', { hasText: name })
     await row.getByRole('link', { name: /詳細/ }).click()
+    await expect(page).toHaveURL(/\/routes\/[^/]+$/)
 
+    // 詳細画面の編集リンクは accessible name が "編集" (exact)
     await expect(
-      page.getByRole('button', { name: '編集' }),
-    ).toBeDisabled()
+      page.getByRole('link', { name: '編集', exact: true }),
+    ).toHaveAttribute('href', /\/routes\/[^/]+\/edit$/)
   })
 
   test('削除ボタン: confirm OK で削除され /routes に通知バナーが表示される', async ({

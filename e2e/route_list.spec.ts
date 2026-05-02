@@ -102,12 +102,11 @@ test.describe('US-004 経路一覧フロー', () => {
     expect(idxOld).toBeGreaterThan(idxNew)
   })
 
-  test('行内アクション: 詳細はリンク有効化 (US-005), 編集 / 削除 は disabled', async ({
+  test('行内アクション: 詳細・編集はリンク有効化 (US-005/006), 削除は disabled', async ({
     page,
   }) => {
     await loginViaUi(page)
-    // route 名に kanji の「詳細/編集/削除」を含めると aria-label と衝突して
-    // セレクタが曖昧になるため ASCII 名でテスト用 route を作る
+    // route 名に kanji の「詳細/編集/削除」を含めると aria-label と衝突するため ASCII 名
     const name = `E2EActions-${RUN_TAG}`
     await registerRouteViaUi(page, {
       name,
@@ -117,12 +116,14 @@ test.describe('US-004 経路一覧フロー', () => {
     })
 
     const row = page.locator('table tbody tr', { hasText: name })
-    // US-005 で詳細遷移先が完成したため、詳細はリンクとして有効化されている
     await expect(row.getByRole('link', { name: /詳細/ })).toHaveAttribute(
       'href',
       /\/routes\/[^/]+$/,
     )
-    await expect(row.getByRole('button', { name: /編集/ })).toBeDisabled()
+    await expect(row.getByRole('link', { name: /編集/ })).toHaveAttribute(
+      'href',
+      /\/routes\/[^/]+\/edit$/,
+    )
     await expect(row.getByRole('button', { name: /削除/ })).toBeDisabled()
   })
 
