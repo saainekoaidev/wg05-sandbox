@@ -59,6 +59,40 @@ async function getRoutes(cookie: string | null): Promise<Response> {
   )
 }
 
+async function getRouteById(cookie: string | null, id: string): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/routes/${id}`, { method: 'GET', headers }),
+  )
+}
+
+async function deleteRouteById(
+  cookie: string | null,
+  id: string,
+): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/routes/${id}`, {
+      method: 'DELETE',
+      headers,
+    }),
+  )
+}
+
+async function createOneRoute(cookie: string, name = 'Test Route'): Promise<string> {
+  const res = await postRoutes(cookie, {
+    name,
+    segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+  })
+  if (res.status !== 201) {
+    throw new Error(`postRoutes failed: ${res.status}`)
+  }
+  const body = (await res.json()) as { id: string }
+  return body.id
+}
+
 async function getStations(cookie: string | null, query: string): Promise<Response> {
   const headers: Record<string, string> = {}
   if (cookie) headers.cookie = cookie
@@ -412,6 +446,111 @@ describe('GET /api/routes (US-004 経路一覧)', () => {
       fare: 100,
       orderIndex: 1,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/routes/:id (US-005 経路詳細)
+// ---------------------------------------------------------------------------
+
+describe('GET /api/routes/:id (US-005 経路詳細)', () => {
+  it('未認証では 401', async () => {
+    const res = await getRouteById(null, 'any-id')
+    expect(res.status).toBe(401)
+  })
+
+  it('存在しない id では 404 (not_found)', async () => {
+    const cookie = await signUpAndGetCookie('detail1@example.com', 'Test1234')
+    const res = await getRouteById(cookie, 'nonexistent-id-xyz')
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toBe('not_found')
+  })
+
+  it('自分の経路は 200 で取得でき、segments を含む', async () => {
+    const cookie = await signUpAndGetCookie('detail2@example.com', 'Test1234')
+    const id = await createOneRoute(cookie, 'detail-target')
+
+    const res = await getRouteById(cookie, id)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.id).toBe(id)
+    expect(body.name).toBe('detail-target')
+    expect(body.fromStation).toBe('A')
+    expect(body.toStation).toBe('B')
+    expect(Array.isArray(body.segments)).toBe(true)
+    expect(body.segments).toHaveLength(1)
+    expect(body.segments[0].orderIndex).toBe(1)
+  })
+
+  it('他人の経路は 403 (forbidden) で内容を返さない', async () => {
+    const cookieA = await signUpAndGetCookie(
+      'alice3@example.com',
+      'Test1234',
+      'Alice',
+    )
+    const cookieB = await signUpAndGetCookie('bob3@example.com', 'Test1234', 'Bob')
+    const aliceRouteId = await createOneRoute(cookieA, 'alice-private')
+
+    const res = await getRouteById(cookieB, aliceRouteId)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toBe('forbidden')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DELETE /api/routes/:id (US-005 経路削除)
+// ---------------------------------------------------------------------------
+
+describe('DELETE /api/routes/:id (US-005 経路削除)', () => {
+  it('未認証では 401', async () => {
+    const res = await deleteRouteById(null, 'any-id')
+    expect(res.status).toBe(401)
+  })
+
+  it('存在しない id では 404 (not_found)', async () => {
+    const cookie = await signUpAndGetCookie('del1@example.com', 'Test1234')
+    const res = await deleteRouteById(cookie, 'nonexistent-id-xyz')
+    expect(res.status).toBe(404)
+  })
+
+  it('自分の経路の削除は 200 で成功し、Route と RouteSegment が CASCADE で消える', async () => {
+    const cookie = await signUpAndGetCookie('del2@example.com', 'Test1234')
+    const id = await createOneRoute(cookie, 'to-be-deleted')
+
+    const beforeRoutes = await prisma.route.count()
+    const beforeSegs = await prisma.routeSegment.count()
+
+    const res = await deleteRouteById(cookie, id)
+    expect(res.status).toBe(200)
+
+    const afterRoutes = await prisma.route.count()
+    const afterSegs = await prisma.routeSegment.count()
+    expect(afterRoutes).toBe(beforeRoutes - 1)
+    expect(afterSegs).toBe(beforeSegs - 1)
+
+    // 再取得は 404
+    const get = await getRouteById(cookie, id)
+    expect(get.status).toBe(404)
+  })
+
+  it('他人の経路の削除は 403 で阻止される (DB は変化しない)', async () => {
+    const cookieA = await signUpAndGetCookie(
+      'alice4@example.com',
+      'Test1234',
+      'Alice',
+    )
+    const cookieB = await signUpAndGetCookie('bob4@example.com', 'Test1234', 'Bob')
+    const aliceRouteId = await createOneRoute(cookieA, 'alice-protected')
+
+    const before = await prisma.route.count()
+    const res = await deleteRouteById(cookieB, aliceRouteId)
+    expect(res.status).toBe(403)
+    const after = await prisma.route.count()
+    expect(after).toBe(before)
+
+    // alice 側からはまだ取得できる
+    const get = await getRouteById(cookieA, aliceRouteId)
+    expect(get.status).toBe(200)
   })
 })
 
