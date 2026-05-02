@@ -81,6 +81,22 @@ async function deleteRouteById(
   )
 }
 
+async function putRouteById(
+  cookie: string | null,
+  id: string,
+  body: unknown,
+): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/routes/${id}`, {
+      method: 'PUT',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  )
+}
+
 async function createOneRoute(cookie: string, name = 'Test Route'): Promise<string> {
   const res = await postRoutes(cookie, {
     name,
@@ -551,6 +567,166 @@ describe('DELETE /api/routes/:id (US-005 経路削除)', () => {
     // alice 側からはまだ取得できる
     const get = await getRouteById(cookieA, aliceRouteId)
     expect(get.status).toBe(200)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PUT /api/routes/:id (US-006 経路編集)
+// ---------------------------------------------------------------------------
+
+describe('PUT /api/routes/:id (US-006 経路編集)', () => {
+  it('未認証では 401', async () => {
+    const res = await putRouteById(null, 'any-id', {
+      updatedAt: new Date().toISOString(),
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('JSON 不正なら 400 (invalid_json)', async () => {
+    const cookie = await signUpAndGetCookie('edit1@example.com', 'Test1234')
+    const id = await createOneRoute(cookie)
+    const res = await putRouteById(cookie, id, 'not-json')
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('invalid_json')
+  })
+
+  it('zod 検証 NG (segments 空配列) で 400', async () => {
+    const cookie = await signUpAndGetCookie('edit2@example.com', 'Test1234')
+    const id = await createOneRoute(cookie)
+    const res = await putRouteById(cookie, id, {
+      updatedAt: new Date().toISOString(),
+      segments: [],
+    })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('validation_failed')
+  })
+
+  it('存在しない id では 404', async () => {
+    const cookie = await signUpAndGetCookie('edit3@example.com', 'Test1234')
+    const res = await putRouteById(cookie, 'nonexistent-id', {
+      updatedAt: new Date().toISOString(),
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('他人の経路の更新は 403 (DB は変化しない)', async () => {
+    const cookieA = await signUpAndGetCookie(
+      'alice5@example.com',
+      'Test1234',
+      'Alice',
+    )
+    const cookieB = await signUpAndGetCookie('bob5@example.com', 'Test1234', 'Bob')
+    const aliceId = await createOneRoute(cookieA, 'protected')
+
+    const aliceRoute = await prisma.route.findUnique({ where: { id: aliceId } })
+    const res = await putRouteById(cookieB, aliceId, {
+      name: 'hacked',
+      updatedAt: aliceRoute!.updatedAt.toISOString(),
+      segments: [{ kind: 'train', fromStation: 'X', toStation: 'Y', fare: 999 }],
+    })
+    expect(res.status).toBe(403)
+
+    const after = await prisma.route.findUnique({ where: { id: aliceId } })
+    expect(after?.name).toBe('protected')
+  })
+
+  it('updatedAt が DB と一致しない場合は 409 を返し、current に最新が同梱される', async () => {
+    const cookie = await signUpAndGetCookie('edit4@example.com', 'Test1234')
+    const id = await createOneRoute(cookie, 'original')
+
+    const res = await putRouteById(cookie, id, {
+      name: 'updated',
+      updatedAt: '2000-01-01T00:00:00.000Z', // 古いタイムスタンプ
+      segments: [{ kind: 'train', fromStation: 'X', toStation: 'Y', fare: 200 }],
+    })
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('conflict')
+    expect(body.message).toMatch(/最新の状態を再読込/)
+    expect(body.current).toBeTruthy()
+    expect(body.current.id).toBe(id)
+    expect(body.current.name).toBe('original') // 旧データのまま
+  })
+
+  it('正しい updatedAt で 200 で更新でき、segments も置換される (orderIndex 採番再)', async () => {
+    const cookie = await signUpAndGetCookie('edit5@example.com', 'Test1234')
+    const id = await createOneRoute(cookie, 'before')
+    const before = await prisma.route.findUnique({
+      where: { id },
+      include: { segments: true },
+    })
+    const beforeSegIds = before!.segments.map((s) => s.id)
+
+    const res = await putRouteById(cookie, id, {
+      name: 'after',
+      updatedAt: before!.updatedAt.toISOString(),
+      segments: [
+        {
+          kind: 'train',
+          lineId: 'jr-yamanote',
+          fromStation: '渋谷',
+          toStation: '表参道',
+          fare: 160,
+        },
+        {
+          kind: 'subway',
+          lineId: 'metro-ginza',
+          fromStation: '表参道',
+          toStation: '神田',
+          fare: 160,
+        },
+      ],
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.id).toBe(id)
+    expect(body.name).toBe('after')
+    expect(body.fromStation).toBe('渋谷') // 派生再算出
+    expect(body.toStation).toBe('神田')
+    expect(body.segments).toHaveLength(2)
+    expect(body.segments[0].orderIndex).toBe(1)
+    expect(body.segments[1].orderIndex).toBe(2)
+
+    // 旧 RouteSegment の id は新 segment では使われない (置換)
+    const newSegIds = body.segments.map((s: { id: string }) => s.id)
+    for (const oldId of beforeSegIds) {
+      expect(newSegIds).not.toContain(oldId)
+    }
+  })
+
+  it('更新後は updatedAt が新しい値に進み、再度同じ updatedAt で更新すると 409', async () => {
+    const cookie = await signUpAndGetCookie('edit6@example.com', 'Test1234')
+    const id = await createOneRoute(cookie)
+    const before = await prisma.route.findUnique({ where: { id } })
+
+    // 1回目: 成功
+    const res1 = await putRouteById(cookie, id, {
+      name: 'v1',
+      updatedAt: before!.updatedAt.toISOString(),
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+    expect(res1.status).toBe(200)
+
+    // 2回目: 古い updatedAt を使う → 409
+    const res2 = await putRouteById(cookie, id, {
+      name: 'v2',
+      updatedAt: before!.updatedAt.toISOString(), // 同じ古い値
+      segments: [{ kind: 'train', fromStation: 'C', toStation: 'D', fare: 200 }],
+    })
+    expect(res2.status).toBe(409)
+  })
+
+  it('updatedAt が不正な日時文字列でも 409 (型一致せず conflict 扱い)', async () => {
+    const cookie = await signUpAndGetCookie('edit7@example.com', 'Test1234')
+    const id = await createOneRoute(cookie)
+    const res = await putRouteById(cookie, id, {
+      name: 'x',
+      updatedAt: 'not-a-date',
+      segments: [{ kind: 'train', fromStation: 'A', toStation: 'B', fare: 100 }],
+    })
+    expect(res.status).toBe(409)
   })
 })
 
