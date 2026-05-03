@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
 
@@ -34,26 +34,37 @@ function isOpenedAsPopup(): boolean {
   }
 }
 
+const VALID_KINDS: ReadonlySet<string> = new Set(['train', 'subway', 'bus', 'other'])
+
 export function StationPicker() {
   const { data: session, isPending } = useSession()
-  const [q, setQ] = useState('')
-  const [kind, setKind] = useState<'' | LineKind>('')
-  const [lineId, setLineId] = useState('')
+  // US-016: 経路登録/編集 popup から ?kind=...&line=...&q=... を受け取り初期値にする
+  const [searchParams] = useSearchParams()
+  const initialKind = searchParams.get('kind') ?? ''
+  const initialLine = searchParams.get('line') ?? ''
+  const initialQ = searchParams.get('q') ?? ''
+  const [q, setQ] = useState(initialQ)
+  const [kind, setKind] = useState<'' | LineKind>(
+    VALID_KINDS.has(initialKind) ? (initialKind as LineKind) : '',
+  )
+  const [lineId, setLineId] = useState(initialLine)
   const [stations, setStations] = useState<ApiStation[] | null>(null)
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const linesState = useLines({ enabled: !!session })
 
-  if (!isPending && !session) {
-    return <Navigate to="/login" replace />
-  }
+  // US-016 自動検索フラグ。初期 URL に条件があれば、認証確定後 1 度だけ自動実行する。
+  const autoSearchedRef = useRef(false)
 
-  async function handleSearch(e: FormEvent) {
-    e.preventDefault()
+  async function executeSearch(
+    qVal: string,
+    kindVal: '' | LineKind,
+    lineIdVal: string,
+  ) {
     setError(null)
     setSearched(true)
-    if (!q.trim() && !kind && !lineId) {
+    if (!qVal.trim() && !kindVal && !lineIdVal) {
       setError('駅名・種別・路線のいずれかを入力または選択してください')
       setStations([])
       return
@@ -61,9 +72,9 @@ export function StationPicker() {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (q.trim()) params.set('q', q.trim())
-      if (kind) params.set('kind', kind)
-      if (lineId) params.set('line', lineId)
+      if (qVal.trim()) params.set('q', qVal.trim())
+      if (kindVal) params.set('kind', kindVal)
+      if (lineIdVal) params.set('line', lineIdVal)
       const res = await fetch(`http://localhost:3000/api/stations?${params}`, {
         method: 'GET',
         credentials: 'include',
@@ -81,6 +92,28 @@ export function StationPicker() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // US-016: 認証確定後に URL 条件があれば 1 回だけ自動検索
+  useEffect(() => {
+    if (isPending || !session) return
+    if (autoSearchedRef.current) return
+    if (!initialQ && !initialKind && !initialLine) return
+    autoSearchedRef.current = true
+    void executeSearch(
+      initialQ,
+      VALID_KINDS.has(initialKind) ? (initialKind as LineKind) : '',
+      initialLine,
+    )
+  }, [isPending, session, initialQ, initialKind, initialLine])
+
+  if (!isPending && !session) {
+    return <Navigate to="/login" replace />
+  }
+
+  async function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    await executeSearch(q, kind, lineId)
   }
 
   function handleClear() {
