@@ -272,8 +272,10 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?line WHERE {
     if (!entry) {
       const rawName = r.stationLabel?.value ?? stationQid
       const normalized = normalizeStationName(rawName)
-      // kana が無い場合は name でフォールバック (検索動作の保証)
-      const kana = r.stationKana?.value || normalized
+      // US-023: Wikidata の P1814 (kana) が無い場合は kana を空文字にする。
+      // 漢字 name をフォールバックすると駅マスタ参照画面で「kana に漢字」が
+      // 出てしまい違和感があるため。本格的な漢字→ひらがな変換は別途検討。
+      const kana = r.stationKana?.value ?? ''
       entry = {
         id: stationQid,
         name: normalized,
