@@ -7,6 +7,7 @@ import { Account } from './Account'
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
 const changePasswordMock = vi.fn()
+const deleteUserMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
@@ -14,6 +15,7 @@ vi.mock('../lib/auth', () => ({
   signOut: vi.fn(),
   useSession: () => mockUseSession(),
   changePassword: (...args: unknown[]) => changePasswordMock(...args),
+  deleteUser: (...args: unknown[]) => deleteUserMock(...args),
 }))
 
 function renderAccount() {
@@ -42,6 +44,7 @@ beforeEach(() => {
   })
   fetchMock.mockReset()
   changePasswordMock.mockReset()
+  deleteUserMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
 
@@ -321,7 +324,7 @@ describe('Account', () => {
     it('新パスワードが強度不足だとフィールドエラーが出て changePassword は呼ばれない', async () => {
       const user = userEvent.setup()
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'OldPass1234')
       await user.type(screen.getByLabelText(/^新しいパスワード必須$/), 'short1A')
       await user.type(
         screen.getByLabelText(/新しいパスワード \(確認\)/),
@@ -339,7 +342,7 @@ describe('Account', () => {
     it('新パスワードと確認用が不一致なら確認用にエラーが出る', async () => {
       const user = userEvent.setup()
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'OldPass1234')
       await user.type(
         screen.getByLabelText(/^新しいパスワード必須$/),
         'NewPass1234',
@@ -358,7 +361,7 @@ describe('Account', () => {
     it('新パスワードが現パスワードと同一だとエラーになる', async () => {
       const user = userEvent.setup()
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'SamePass1A')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'SamePass1A')
       await user.type(
         screen.getByLabelText(/^新しいパスワード必須$/),
         'SamePass1A',
@@ -382,7 +385,7 @@ describe('Account', () => {
       const user = userEvent.setup()
       changePasswordMock.mockResolvedValueOnce({ data: {}, error: null })
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'OldPass1234')
       await user.type(
         screen.getByLabelText(/^新しいパスワード必須$/),
         'NewPass1234',
@@ -407,7 +410,7 @@ describe('Account', () => {
         await screen.findByText(/パスワードを変更しました/),
       ).toBeInTheDocument()
       // フィールドがクリアされる
-      expect(screen.getByLabelText(/現在のパスワード/)).toHaveValue('')
+      expect(screen.getByLabelText(/^現在のパスワード必須$/)).toHaveValue('')
       expect(screen.getByLabelText(/^新しいパスワード必須$/)).toHaveValue('')
       expect(screen.getByLabelText(/新しいパスワード \(確認\)/)).toHaveValue('')
     })
@@ -419,7 +422,7 @@ describe('Account', () => {
         error: { code: 'INVALID_PASSWORD' },
       })
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'WrongPass1A')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'WrongPass1A')
       await user.type(
         screen.getByLabelText(/^新しいパスワード必須$/),
         'NewPass1234',
@@ -443,7 +446,7 @@ describe('Account', () => {
         error: { code: 'SOMETHING_ELSE' },
       })
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'OldPass1234')
       await user.type(
         screen.getByLabelText(/^新しいパスワード必須$/),
         'NewPass1234',
@@ -466,7 +469,7 @@ describe('Account', () => {
       const user = userEvent.setup()
       changePasswordMock.mockRejectedValueOnce(new Error('network down'))
       await setupPasswordSection()
-      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(screen.getByLabelText(/^現在のパスワード必須$/), 'OldPass1234')
       await user.type(
         screen.getByLabelText(/^新しいパスワード必須$/),
         'NewPass1234',
@@ -494,6 +497,158 @@ describe('Account', () => {
       expect(next.type).toBe('password')
       await user.click(screen.getByRole('button', { name: '表示' }))
       expect(next.type).toBe('text')
+    })
+  })
+
+  describe('アカウント削除 (US-010)', () => {
+    async function setupDeleteSection() {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ME), { status: 200 }),
+      )
+      renderAccount()
+      await screen.findByDisplayValue('山田 太郎')
+    }
+
+    it('現パス未入力で「アカウントを削除する」を押すとフィールドエラーが出て deleteUser は呼ばれない', async () => {
+      const user = userEvent.setup()
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        await setupDeleteSection()
+        await user.click(
+          screen.getByRole('button', { name: 'アカウントを削除する' }),
+        )
+        // 削除セクション内の「現在のパスワード」フィールド (パスワード変更とは独立)
+        expect(
+          screen.getAllByText('現在のパスワードを入力してください').length,
+        ).toBeGreaterThanOrEqual(1)
+        expect(deleteUserMock).not.toHaveBeenCalled()
+        // 確認ダイアログも未表示
+        expect(confirmSpy).not.toHaveBeenCalled()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('確認ダイアログをキャンセルすると deleteUser は呼ばれない', async () => {
+      const user = userEvent.setup()
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      try {
+        await setupDeleteSection()
+        // 削除セクションの input を狙う (ID 指定で一意化)
+        const delPwd = document.querySelector(
+          '#delPassword',
+        ) as HTMLInputElement
+        await user.type(delPwd, 'OldPass1234')
+        await user.click(
+          screen.getByRole('button', { name: 'アカウントを削除する' }),
+        )
+        expect(confirmSpy).toHaveBeenCalledWith(
+          expect.stringContaining('アカウントを削除します'),
+        )
+        expect(deleteUserMock).not.toHaveBeenCalled()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('正常: deleteUser({ password }) が呼ばれ /login にリダイレクトする', async () => {
+      const user = userEvent.setup()
+      deleteUserMock.mockResolvedValueOnce({ data: { success: true }, error: null })
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        await setupDeleteSection()
+        const delPwd = document.querySelector(
+          '#delPassword',
+        ) as HTMLInputElement
+        await user.type(delPwd, 'OldPass1234')
+        await user.click(
+          screen.getByRole('button', { name: 'アカウントを削除する' }),
+        )
+        await waitFor(() => {
+          expect(deleteUserMock).toHaveBeenCalledWith({
+            password: 'OldPass1234',
+          })
+        })
+        await waitFor(() => {
+          expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument()
+        })
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('deleteUser が INVALID_PASSWORD を返すとパスワードエラーバナーが出る', async () => {
+      const user = userEvent.setup()
+      deleteUserMock.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'INVALID_PASSWORD' },
+      })
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        await setupDeleteSection()
+        const delPwd = document.querySelector(
+          '#delPassword',
+        ) as HTMLInputElement
+        await user.type(delPwd, 'WrongPass9999')
+        await user.click(
+          screen.getByRole('button', { name: 'アカウントを削除する' }),
+        )
+        // アカウント削除セクションのバナー
+        expect(
+          await screen.findByText('現在のパスワードが正しくありません'),
+        ).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('deleteUser が想定外コードを返すと汎用エラーバナーが出る', async () => {
+      const user = userEvent.setup()
+      deleteUserMock.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'SOMETHING_ELSE' },
+      })
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        await setupDeleteSection()
+        const delPwd = document.querySelector(
+          '#delPassword',
+        ) as HTMLInputElement
+        await user.type(delPwd, 'OldPass1234')
+        await user.click(
+          screen.getByRole('button', { name: 'アカウントを削除する' }),
+        )
+        expect(
+          await screen.findByText(
+            'アカウントの削除に失敗しました。時間をおいて再度お試しください',
+          ),
+        ).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
+    })
+
+    it('deleteUser が throw した場合も汎用エラーバナーが出る', async () => {
+      const user = userEvent.setup()
+      deleteUserMock.mockRejectedValueOnce(new Error('network down'))
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      try {
+        await setupDeleteSection()
+        const delPwd = document.querySelector(
+          '#delPassword',
+        ) as HTMLInputElement
+        await user.type(delPwd, 'OldPass1234')
+        await user.click(
+          screen.getByRole('button', { name: 'アカウントを削除する' }),
+        )
+        expect(
+          await screen.findByText(
+            'アカウントの削除に失敗しました。時間をおいて再度お試しください',
+          ),
+        ).toBeInTheDocument()
+      } finally {
+        confirmSpy.mockRestore()
+      }
     })
   })
 })

@@ -153,13 +153,13 @@ test.describe('US-009 パスワード変更フロー', () => {
       page.getByRole('heading', { name: 'プロフィール設定' }),
     ).toBeVisible()
 
-    await page.getByLabel(/現在のパスワード/).fill(oldPw)
+    await page.getByLabel(/^現在のパスワード必須$/).fill(oldPw)
     await page.getByLabel(/^新しいパスワード必須$/).fill(newPw)
     await page.getByLabel(/新しいパスワード \(確認\)/).fill(newPw)
     await page.getByRole('button', { name: 'パスワードを変更する' }).click()
 
     await expect(page.getByText(/パスワードを変更しました/)).toBeVisible()
-    await expect(page.getByLabel(/現在のパスワード/)).toHaveValue('')
+    await expect(page.getByLabel(/^現在のパスワード必須$/)).toHaveValue('')
     await expect(page.getByLabel(/^新しいパスワード必須$/)).toHaveValue('')
 
     // ログアウト → 旧パスではログインできない / 新パスではログインできる
@@ -185,7 +185,7 @@ test.describe('US-009 パスワード変更フロー', () => {
     await signupAndGoToRoutes(page, email, 'OldPass1234', 'PW User Bad')
 
     await page.goto('/account')
-    await page.getByLabel(/現在のパスワード/).fill('WrongPass9999')
+    await page.getByLabel(/^現在のパスワード必須$/).fill('WrongPass9999')
     await page.getByLabel(/^新しいパスワード必須$/).fill('NewPass5678')
     await page.getByLabel(/新しいパスワード \(確認\)/).fill('NewPass5678')
     await page.getByRole('button', { name: 'パスワードを変更する' }).click()
@@ -200,7 +200,7 @@ test.describe('US-009 パスワード変更フロー', () => {
     await signupAndGoToRoutes(page, email, 'OldPass1234', 'PW User Weak')
 
     await page.goto('/account')
-    await page.getByLabel(/現在のパスワード/).fill('OldPass1234')
+    await page.getByLabel(/^現在のパスワード必須$/).fill('OldPass1234')
     // すべて小文字+数字、大文字なし → 強度 NG
     await page.getByLabel(/^新しいパスワード必須$/).fill('newpass12')
     await page.getByLabel(/新しいパスワード \(確認\)/).fill('newpass12')
@@ -218,11 +218,134 @@ test.describe('US-009 パスワード変更フロー', () => {
     await signupAndGoToRoutes(page, email, 'OldPass1234', 'PW User Mismatch')
 
     await page.goto('/account')
-    await page.getByLabel(/現在のパスワード/).fill('OldPass1234')
+    await page.getByLabel(/^現在のパスワード必須$/).fill('OldPass1234')
     await page.getByLabel(/^新しいパスワード必須$/).fill('NewPass5678')
     await page.getByLabel(/新しいパスワード \(確認\)/).fill('NewPass9999')
     await page.getByRole('button', { name: 'パスワードを変更する' }).click()
 
     await expect(page.getByText('パスワードが一致しません')).toBeVisible()
+  })
+})
+
+test.describe('US-010 アカウント削除フロー', () => {
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies()
+  })
+
+  async function signupAndGoToAccount(
+    page: Page,
+    email: string,
+    password: string,
+    name: string,
+  ) {
+    await page.request.post('http://localhost:3000/api/auth/sign-up/email', {
+      data: { email, password, name },
+      failOnStatusCode: false,
+    })
+    await page.goto('/account')
+    await expect(
+      page.getByRole('heading', { name: 'プロフィール設定' }),
+    ).toBeVisible()
+  }
+
+  test('正常: 現パス入力 + confirm OK で削除され /login へリダイレクト, 旧アドレスで再ログイン不可', async ({
+    page,
+  }) => {
+    const email = `e2e-del-ok-${RUN_TAG}@example.com`
+    const password = 'DelPass1234'
+    await signupAndGoToAccount(page, email, password, 'Del User OK')
+
+    await page
+      .getByLabel(/現在のパスワード \(削除確認用\)/)
+      .fill(password)
+
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toContain('アカウントを削除します')
+      void dialog.accept()
+    })
+    await page
+      .getByRole('button', { name: 'アカウントを削除する' })
+      .click()
+
+    await expect(page).toHaveURL('/login', { timeout: 15_000 })
+
+    // 削除済みアドレス + 元パスワードで再ログイン → 失敗 (汎用エラー)
+    await page.getByLabel(/メールアドレス/).fill(email)
+    await page.getByLabel(/パスワード/).fill(password)
+    await page.getByRole('button', { name: 'ログイン' }).click()
+    await expect(page).toHaveURL('/login')
+    await expect(
+      page.getByText(/メールアドレスまたはパスワードが正しくありません/),
+    ).toBeVisible()
+  })
+
+  test('現パス誤りなら削除されず「現在のパスワードが正しくありません」が出る', async ({
+    page,
+  }) => {
+    const email = `e2e-del-bad-${RUN_TAG}@example.com`
+    await signupAndGoToAccount(page, email, 'DelPass1234', 'Del User Bad')
+
+    await page
+      .getByLabel(/現在のパスワード \(削除確認用\)/)
+      .fill('WrongPass9999')
+
+    page.once('dialog', (dialog) => {
+      void dialog.accept()
+    })
+    await page
+      .getByRole('button', { name: 'アカウントを削除する' })
+      .click()
+
+    await expect(
+      page.getByText('現在のパスワードが正しくありません'),
+    ).toBeVisible()
+    // 画面に留まる
+    await expect(page).toHaveURL('/account')
+  })
+
+  test('confirm キャンセルなら削除されず, 画面に留まる', async ({ page }) => {
+    const email = `e2e-del-cancel-${RUN_TAG}@example.com`
+    const password = 'DelPass1234'
+    await signupAndGoToAccount(page, email, password, 'Del User Cancel')
+
+    await page
+      .getByLabel(/現在のパスワード \(削除確認用\)/)
+      .fill(password)
+
+    page.once('dialog', (dialog) => {
+      void dialog.dismiss()
+    })
+    await page
+      .getByRole('button', { name: 'アカウントを削除する' })
+      .click()
+
+    await expect(page).toHaveURL('/account')
+
+    // 削除されていないことを確認: /routes に遷移できる
+    await page.getByRole('link', { name: '経路一覧に戻る' }).click()
+    await expect(page).toHaveURL('/routes')
+  })
+
+  test('現パス未入力で「アカウントを削除する」を押すとフィールドエラーが出て confirm も出ない', async ({
+    page,
+  }) => {
+    const email = `e2e-del-empty-${RUN_TAG}@example.com`
+    await signupAndGoToAccount(page, email, 'DelPass1234', 'Del User Empty')
+
+    let dialogShown = false
+    page.on('dialog', (dialog) => {
+      dialogShown = true
+      void dialog.dismiss()
+    })
+    await page
+      .getByRole('button', { name: 'アカウントを削除する' })
+      .click()
+
+    await expect(
+      page
+        .locator('.field-error', { hasText: '現在のパスワードを入力してください' })
+        .first(),
+    ).toBeVisible()
+    expect(dialogShown).toBe(false)
   })
 })

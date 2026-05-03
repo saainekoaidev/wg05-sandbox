@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { changePassword, useSession } from '../lib/auth'
+import { changePassword, deleteUser, useSession } from '../lib/auth'
 
 type ApiUser = {
   id: string
@@ -61,6 +61,12 @@ export function Account() {
   const [pwBanner, setPwBanner] = useState<string | null>(null)
   const [pwNotice, setPwNotice] = useState<string | null>(null)
   const [savingPassword, setSavingPassword] = useState(false)
+
+  // アカウント削除 (US-010)
+  const [delPassword, setDelPassword] = useState('')
+  const [delPasswordError, setDelPasswordError] = useState<string | null>(null)
+  const [delBanner, setDelBanner] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (isPending || !session) return
@@ -231,6 +237,49 @@ export function Account() {
       )
     } finally {
       setSavingPassword(false)
+    }
+  }
+
+  // アカウント削除 (ADR 0004 §(b)): 現パス再認証 + 確認ダイアログを必須とする。
+  // better-auth deleteUser({ password }) → afterDelete フックで Verification も掃除される。
+  // 成功後はセッションが破棄されているため /login へ遷移する。
+  async function handleDeleteAccount(e: FormEvent) {
+    e.preventDefault()
+    setDelBanner(null)
+    setDelPasswordError(null)
+    if (!delPassword) {
+      setDelPasswordError('現在のパスワードを入力してください')
+      return
+    }
+    if (
+      !window.confirm(
+        'アカウントを削除します。登録済みの経路を含む全データが完全に削除され、復元できません。本当に削除してよろしいですか?',
+      )
+    ) {
+      return
+    }
+    setDeleting(true)
+    try {
+      const result = await deleteUser({ password: delPassword })
+      if (result.error) {
+        const code = (result.error as { code?: string }).code
+        if (code && /INVALID/.test(code)) {
+          setDelBanner('現在のパスワードが正しくありません')
+        } else {
+          setDelBanner(
+            'アカウントの削除に失敗しました。時間をおいて再度お試しください',
+          )
+        }
+        return
+      }
+      // 削除成功: セッションは無効化されているので /login にリダイレクト
+      navigate('/login', { replace: true })
+    } catch {
+      setDelBanner(
+        'アカウントの削除に失敗しました。時間をおいて再度お試しください',
+      )
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -499,6 +548,54 @@ export function Account() {
                 disabled={savingPassword}
               >
                 {savingPassword ? '変更中…' : 'パスワードを変更する'}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+
+      {!loading && user && (
+        <>
+          <div className="divider">
+            <span>Delete Account</span>
+          </div>
+
+          <form onSubmit={handleDeleteAccount} noValidate>
+            {delBanner && <div className="banner is-shown">{delBanner}</div>}
+
+            <div className="hint" style={{ marginBottom: 12 }}>
+              アカウントを削除すると、登録済みの通勤経路・セッション情報・
+              アカウント情報が <strong>すべて完全に削除</strong> され、復元できません。
+              削除には現在のパスワードを再入力する必要があります。
+            </div>
+
+            <div className="group">
+              <label htmlFor="delPassword">
+                現在のパスワード (削除確認用)<span className="req">必須</span>
+              </label>
+              <input
+                type="password"
+                id="delPassword"
+                name="delPassword"
+                autoComplete="current-password"
+                minLength={8}
+                maxLength={32}
+                value={delPassword}
+                onChange={(e) => setDelPassword(e.target.value)}
+                disabled={deleting}
+              />
+              {delPasswordError && (
+                <div className="field-error">{delPasswordError}</div>
+              )}
+            </div>
+
+            <div className="actions">
+              <button
+                type="submit"
+                className="btn btn-danger"
+                disabled={deleting}
+              >
+                {deleting ? '削除中…' : 'アカウントを削除する'}
               </button>
             </div>
           </form>
