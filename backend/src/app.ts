@@ -554,3 +554,184 @@ app.delete('/api/lines/:id', async (c) => {
   await prisma.line.delete({ where: { id } })
   return c.body(null, 204)
 })
+
+// =====================================================================
+// 駅マスタ管理 (US-013, ADR 0006 §4-§6)
+// =====================================================================
+
+// id は任意 (省略時 cuid 自動採番)。指定する場合は path-safe な範囲に限定。
+const StationCreateInput = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[A-Za-z0-9._-]+$/, 'id_format')
+    .optional(),
+  name: z.string().min(1).max(50),
+  kana: z.string().min(1).max(80),
+  // 紐付ける Line の id 配列。空配列許容。
+  lineIds: z.array(z.string()).max(50).default([]),
+})
+
+const StationUpdate = z.object({
+  name: z.string().min(1).max(50),
+  kana: z.string().min(1).max(80),
+  lineIds: z.array(z.string()).max(50).default([]),
+})
+
+// 管理画面用: 全駅の一覧 (lineIds 込み)
+app.get('/api/admin/stations', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const stations = await prisma.station.findMany({
+    orderBy: { kana: 'asc' },
+    include: {
+      lineLinks: { include: { line: true } },
+    },
+  })
+  return c.json({
+    stations: stations.map((s) => ({
+      id: s.id,
+      name: s.name,
+      kana: s.kana,
+      lineIds: s.lineLinks.map((ll) => ll.line.id),
+      lines: s.lineLinks.map((ll) => ({
+        id: ll.line.id,
+        name: ll.line.name,
+        kind: ll.line.kind,
+      })),
+    })),
+  })
+})
+
+// lineIds 配列で渡された Line.id がすべて DB に存在するかをチェック。
+// 存在しない id があれば最初の 1 件を返す。
+async function findMissingLineId(lineIds: string[]): Promise<string | null> {
+  if (lineIds.length === 0) return null
+  const found = await prisma.line.findMany({
+    where: { id: { in: lineIds } },
+    select: { id: true },
+  })
+  const foundSet = new Set(found.map((l) => l.id))
+  for (const id of lineIds) {
+    if (!foundSet.has(id)) return id
+  }
+  return null
+}
+
+app.post('/api/admin/stations', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const parsed = StationCreateInput.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+  const lineIds = Array.from(new Set(parsed.data.lineIds))
+  const missing = await findMissingLineId(lineIds)
+  if (missing) {
+    return c.json({ error: 'unknown_line', lineId: missing }, 400)
+  }
+
+  try {
+    const created = await prisma.station.create({
+      data: {
+        ...(parsed.data.id ? { id: parsed.data.id } : {}),
+        name: parsed.data.name,
+        kana: parsed.data.kana,
+        lineLinks: {
+          create: lineIds.map((lineId) => ({ lineId })),
+        },
+      },
+      include: { lineLinks: { include: { line: true } } },
+    })
+    return c.json(
+      {
+        id: created.id,
+        name: created.name,
+        kana: created.kana,
+        lineIds: created.lineLinks.map((ll) => ll.line.id),
+      },
+      201,
+    )
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') {
+      return c.json({ error: 'duplicate' }, 409)
+    }
+    throw e
+  }
+})
+
+app.put('/api/admin/stations/:id', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const id = c.req.param('id')
+  const existing = await prisma.station.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const parsed = StationUpdate.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+  const lineIds = Array.from(new Set(parsed.data.lineIds))
+  const missing = await findMissingLineId(lineIds)
+  if (missing) {
+    return c.json({ error: 'unknown_line', lineId: missing }, 400)
+  }
+
+  // ADR 0006 §5: 駅名変更でも既存 RouteSegment.fromStation/toStation は追従させない。
+  // 名称変更は Station.name のみに反映する。StationLine は deleteMany + create で全置換。
+  const updated = await prisma.station.update({
+    where: { id },
+    data: {
+      name: parsed.data.name,
+      kana: parsed.data.kana,
+      lineLinks: {
+        deleteMany: {},
+        create: lineIds.map((lineId) => ({ lineId })),
+      },
+    },
+    include: { lineLinks: { include: { line: true } } },
+  })
+
+  return c.json({
+    id: updated.id,
+    name: updated.name,
+    kana: updated.kana,
+    lineIds: updated.lineLinks.map((ll) => ll.line.id),
+  })
+})
+
+app.delete('/api/admin/stations/:id', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const id = c.req.param('id')
+  const existing = await prisma.station.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+
+  // ADR 0006 §4: 駅削除は無制約。RouteSegment.fromStation/toStation は文字列複製で
+  // 外部キーが無いため壊れない。StationLine は onDelete: Cascade で連鎖削除される。
+  await prisma.station.delete({ where: { id } })
+  return c.body(null, 204)
+})
