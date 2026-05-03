@@ -9,7 +9,7 @@
 | 概要 | 管理者が路線マスタ (Line) を一覧表示・新規作成・編集・削除する画面 |
 | URL | `/admin/lines` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-012 |
+| 関連US | US-012, US-025, US-028, US-029, US-031 |
 | 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性) |
 
 ---
@@ -44,6 +44,8 @@
 ```
 
 「+ 新規作成」「編集」は **専用画面に遷移する Link** (US-025)。新規は `/admin/lines/new`, 編集は `/admin/lines/:id/edit`。フォーム送信成功後は `/admin/lines` に navigate state.notice 付きで戻り、一覧に通知バナーが表示される。
+
+US-031: 一覧上部に「種別」フィルタ (`すべて / 電車 / 地下鉄 / バス / その他`) を設置する。クライアント側の filter で表示行を絞り込む (件数が多くないので server filter は導入しない)。
 
 ---
 
