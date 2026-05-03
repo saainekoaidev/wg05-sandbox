@@ -117,3 +117,112 @@ test.describe('US-008 プロフィール設定フロー', () => {
     await expect(page).toHaveURL('/login')
   })
 })
+
+test.describe('US-009 パスワード変更フロー', () => {
+  // パスワード変更テストごとに使い捨てユーザを作って、本ファイル内の他テストの認証情報と
+  // 干渉しないようにする (パスワードを実際に変えるため、共有ユーザは使えない)。
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies()
+  })
+
+  // signup は better-auth が自動ログインしてくれるため、その session を使って /routes に遷移する。
+  async function signupAndGoToRoutes(
+    page: Page,
+    email: string,
+    password: string,
+    name: string,
+  ) {
+    await page.request.post('http://localhost:3000/api/auth/sign-up/email', {
+      data: { email, password, name },
+      failOnStatusCode: false,
+    })
+    await page.goto('/routes')
+    await expect(page).toHaveURL('/routes')
+  }
+
+  test('正常: 現/新/確認を入れて変更すると成功バナーが出てフィールドがクリアされる', async ({
+    page,
+  }) => {
+    const email = `e2e-pw-ok-${RUN_TAG}@example.com`
+    const oldPw = 'OldPass1234'
+    const newPw = 'NewPass5678'
+    await signupAndGoToRoutes(page, email, oldPw, 'PW User OK')
+
+    await page.goto('/account')
+    await expect(
+      page.getByRole('heading', { name: 'プロフィール設定' }),
+    ).toBeVisible()
+
+    await page.getByLabel(/現在のパスワード/).fill(oldPw)
+    await page.getByLabel(/^新しいパスワード必須$/).fill(newPw)
+    await page.getByLabel(/新しいパスワード \(確認\)/).fill(newPw)
+    await page.getByRole('button', { name: 'パスワードを変更する' }).click()
+
+    await expect(page.getByText(/パスワードを変更しました/)).toBeVisible()
+    await expect(page.getByLabel(/現在のパスワード/)).toHaveValue('')
+    await expect(page.getByLabel(/^新しいパスワード必須$/)).toHaveValue('')
+
+    // ログアウト → 旧パスではログインできない / 新パスではログインできる
+    await page.getByRole('link', { name: '経路一覧に戻る' }).click()
+    await page.getByRole('link', { name: 'ログアウト' }).click()
+    await expect(page).toHaveURL('/login')
+
+    await page.getByLabel(/メールアドレス/).fill(email)
+    await page.getByLabel(/パスワード/).fill(oldPw)
+    await page.getByRole('button', { name: 'ログイン' }).click()
+    // 旧パスワードではログイン失敗 → /login に留まる
+    await expect(page).toHaveURL('/login')
+
+    await page.getByLabel(/パスワード/).fill(newPw)
+    await page.getByRole('button', { name: 'ログイン' }).click()
+    await expect(page).toHaveURL('/routes')
+  })
+
+  test('現パスワード誤りなら「現在のパスワードが正しくありません」バナーが出る', async ({
+    page,
+  }) => {
+    const email = `e2e-pw-bad-${RUN_TAG}@example.com`
+    await signupAndGoToRoutes(page, email, 'OldPass1234', 'PW User Bad')
+
+    await page.goto('/account')
+    await page.getByLabel(/現在のパスワード/).fill('WrongPass9999')
+    await page.getByLabel(/^新しいパスワード必須$/).fill('NewPass5678')
+    await page.getByLabel(/新しいパスワード \(確認\)/).fill('NewPass5678')
+    await page.getByRole('button', { name: 'パスワードを変更する' }).click()
+
+    await expect(
+      page.getByText('現在のパスワードが正しくありません'),
+    ).toBeVisible()
+  })
+
+  test('複雑度不足だとフィールドエラーが出て送信されない', async ({ page }) => {
+    const email = `e2e-pw-weak-${RUN_TAG}@example.com`
+    await signupAndGoToRoutes(page, email, 'OldPass1234', 'PW User Weak')
+
+    await page.goto('/account')
+    await page.getByLabel(/現在のパスワード/).fill('OldPass1234')
+    // すべて小文字+数字、大文字なし → 強度 NG
+    await page.getByLabel(/^新しいパスワード必須$/).fill('newpass12')
+    await page.getByLabel(/新しいパスワード \(確認\)/).fill('newpass12')
+    await page.getByRole('button', { name: 'パスワードを変更する' }).click()
+
+    await expect(
+      page.getByText(
+        'パスワードは英大文字・小文字・数字をそれぞれ1文字以上含めてください',
+      ),
+    ).toBeVisible()
+  })
+
+  test('新パス/確認用が不一致だとフィールドエラーが出る', async ({ page }) => {
+    const email = `e2e-pw-mismatch-${RUN_TAG}@example.com`
+    await signupAndGoToRoutes(page, email, 'OldPass1234', 'PW User Mismatch')
+
+    await page.goto('/account')
+    await page.getByLabel(/現在のパスワード/).fill('OldPass1234')
+    await page.getByLabel(/^新しいパスワード必須$/).fill('NewPass5678')
+    await page.getByLabel(/新しいパスワード \(確認\)/).fill('NewPass9999')
+    await page.getByRole('button', { name: 'パスワードを変更する' }).click()
+
+    await expect(page.getByText('パスワードが一致しません')).toBeVisible()
+  })
+})
