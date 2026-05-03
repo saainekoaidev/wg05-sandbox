@@ -297,8 +297,16 @@ export function RouteEdit() {
   // memoization 連鎖を組んでいない現状ではコスト無視できる。
   function openStationPicker(segmentIndex: number, field: SegmentField) {
     setPendingTarget({ segmentIndex, field })
+    // US-016: 区間で選択済みの種別/路線を popup に引き継ぐ
+    const seg = segments[segmentIndex]
+    const params = new URLSearchParams()
+    if (seg?.kind) params.set('kind', seg.kind)
+    if (seg?.lineId) params.set('line', seg.lineId)
+    const url = params.toString()
+      ? `/stations?${params.toString()}`
+      : '/stations'
     window.open(
-      '/stations',
+      url,
       STATION_PICKER_NAME,
       'width=960,height=720,resizable=yes,scrollbars=yes',
     )

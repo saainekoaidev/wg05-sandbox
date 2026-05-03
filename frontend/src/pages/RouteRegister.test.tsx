@@ -177,7 +177,7 @@ describe('RouteRegister', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('駅選択ボタン押下で window.open が station-picker 名で呼ばれる', async () => {
+  it('駅選択ボタン押下で window.open が station-picker 名で呼ばれ、選択中の種別を URL に含む (US-016)', async () => {
     const user = userEvent.setup()
     renderRouteRegister()
 
@@ -186,8 +186,28 @@ describe('RouteRegister', () => {
 
     expect(openMock).toHaveBeenCalledTimes(1)
     const args = openMock.mock.calls[0]!
-    expect(args[0]).toBe('/stations')
+    // 区間の初期 kind は 'train' なので URL に ?kind=train が付く
+    expect(args[0]).toBe('/stations?kind=train')
     expect(args[1]).toBe('wg05-station-picker')
+  })
+
+  it('US-016: 種別と路線が両方選択されている状態で駅選択を押すと両方が URL に含まれる', async () => {
+    const user = userEvent.setup()
+    renderRouteRegister()
+
+    // 区間1 の路線を変更 (種別はデフォルト train のまま)
+    const lineSelect = screen.getByRole('combobox', {
+      name: '区間1 路線名',
+    }) as HTMLSelectElement
+    await user.selectOptions(lineSelect, 'jr-yamanote')
+
+    await user.click(
+      screen.getAllByRole('button', { name: '駅選択' })[0]!,
+    )
+    expect(openMock).toHaveBeenCalledTimes(1)
+    const url = openMock.mock.calls[0]![0]
+    expect(url).toContain('kind=train')
+    expect(url).toContain('line=jr-yamanote')
   })
 
   it('postMessage (station-pick) を受けると対象の駅入力欄に値が反映される', async () => {

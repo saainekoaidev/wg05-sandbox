@@ -119,7 +119,8 @@ test.describe('US-003 経路登録フロー', () => {
       .click()
     const popup = await popupPromise
     await popup.waitForLoadState()
-    await expect(popup).toHaveURL(/\/stations$/)
+    // US-016: 区間で選択済みの kind/line が URL クエリに付くため $ ではなく \\b 区切りで判定
+    await expect(popup).toHaveURL(/\/stations(\?|$)/)
     await expect(
       popup.getByRole('heading', { name: '駅マスタ参照' }),
     ).toBeVisible()

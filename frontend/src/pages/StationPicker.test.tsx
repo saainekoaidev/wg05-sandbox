@@ -37,9 +37,9 @@ vi.mock('../lib/lines', () => ({
   }),
 }))
 
-function renderPicker() {
+function renderPicker(initialPath = '/stations') {
   return render(
-    <MemoryRouter initialEntries={['/stations']}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route path="/stations" element={<StationPicker />} />
         <Route path="/login" element={<div>LOGIN_PAGE</div>} />
@@ -329,6 +329,74 @@ describe('StationPicker', () => {
       // 種別 = 電車 (同じ) に再選択
       await user.selectOptions(kindSelect, 'train')
       expect(lineSelect.value).toBe('jr-tokaido')
+    })
+  })
+
+  describe('US-016 popup から条件を引き継いで自動検索', () => {
+    it('?kind=train で開いた時、種別が pre-fill され自動検索される', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+      )
+      renderPicker('/stations?kind=train')
+      // 種別が pre-fill
+      await waitFor(() => {
+        expect(
+          (screen.getByLabelText('種別') as HTMLSelectElement).value,
+        ).toBe('train')
+      })
+      // 自動検索が走り、API が呼ばれた
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      const [url] = fetchMock.mock.calls[0]!
+      expect(url).toContain('kind=train')
+    })
+
+    it('?kind=train&line=jr-tokaido で開いた時、両方 pre-fill + 自動検索', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+      )
+      renderPicker('/stations?kind=train&line=jr-tokaido')
+      await waitFor(() => {
+        expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe(
+          'train',
+        )
+        expect((screen.getByLabelText('路線') as HTMLSelectElement).value).toBe(
+          'jr-tokaido',
+        )
+      })
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      const [url] = fetchMock.mock.calls[0]!
+      expect(url).toContain('kind=train')
+      expect(url).toContain('line=jr-tokaido')
+    })
+
+    it('?q=渋 で開いた時、キーワードが pre-fill + 自動検索', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+      )
+      renderPicker('/stations?q=' + encodeURIComponent('渋'))
+      await waitFor(() => {
+        expect(
+          (screen.getByLabelText('駅名 / よみがな') as HTMLInputElement).value,
+        ).toBe('渋')
+      })
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    })
+
+    it('URL クエリ無しでは自動検索しない', async () => {
+      renderPicker('/stations')
+      // 短いラグの後でも fetch が呼ばれていないこと
+      await new Promise((r) => setTimeout(r, 100))
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('不正な kind 値 (?kind=spaceship) は無視される (空に倒す)', async () => {
+      renderPicker('/stations?kind=spaceship')
+      await new Promise((r) => setTimeout(r, 100))
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe(
+        '',
+      )
+      // 不正 kind のみだと有効条件が無いので自動検索しない
+      expect(fetchMock).not.toHaveBeenCalled()
     })
   })
 })
