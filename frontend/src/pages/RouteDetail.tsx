@@ -6,6 +6,7 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
 
@@ -178,6 +179,7 @@ export function RouteDetail() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="brand">Route Detail</div>
         <h1>経路詳細</h1>
         <p>登録済み経路の詳細情報を確認できます</p>

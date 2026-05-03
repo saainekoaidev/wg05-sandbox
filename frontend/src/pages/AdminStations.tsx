@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { useLines, type ApiLine, type LineKind } from '../lib/lines'
 import { useSession } from '../lib/auth'
 
@@ -308,6 +309,7 @@ export function AdminStations() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Admin</div>
           <h1>駅マスタ管理</h1>
         </div>
@@ -322,6 +324,7 @@ export function AdminStations() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Admin</div>
           <h1>駅マスタ管理</h1>
         </div>
@@ -336,6 +339,7 @@ export function AdminStations() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Admin</div>
           <h1>駅マスタ管理</h1>
         </div>
@@ -359,6 +363,7 @@ export function AdminStations() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="head-row">
           <div>
             <div className="brand">Admin / Stations</div>

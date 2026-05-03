@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { changePassword, deleteUser, useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -287,6 +288,7 @@ export function Account() {
   return (
     <div className="shell">
       <div className="head">
+        <UserBadge />
         <div className="brand">Account</div>
         <h1>プロフィール設定</h1>
         <p>登録済みのアカウント情報を確認・変更できます</p>

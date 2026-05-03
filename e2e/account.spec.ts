@@ -25,13 +25,12 @@ test.describe('US-008 プロフィール設定フロー', () => {
     await context.clearCookies()
   })
 
-  test('一覧フッタの「ユーザー: ...」リンクから /account に遷移し pre-fill される', async ({
+  test('ヘッダ右上の UserBadge から /account に遷移し pre-fill される (US-019)', async ({
     page,
   }) => {
     await loginViaUi(page)
-    await page
-      .getByRole('link', { name: 'アカウント設定を開く' })
-      .click()
+    // US-019: ヘッダの UserBadge は aria-label "アカウント設定を開く (氏名)" の link
+    await page.locator('.user-badge').click()
     await expect(page).toHaveURL('/account')
 
     await expect(
@@ -75,7 +74,7 @@ test.describe('US-008 プロフィール設定フロー', () => {
     await expect(page.getByLabel(/お名前/)).toHaveValue(newName)
     await expect(page.getByLabel('郵便番号')).toHaveValue('1500001')
 
-    // 一覧フッタの表示は email のままなので変わらない (US-008 の対象外)
+    // 一覧画面に戻る (US-019: 表示は ヘッダ右上の UserBadge に集約済み)
     await page.getByRole('link', { name: '経路一覧に戻る' }).click()
     await expect(page).toHaveURL('/routes')
   })

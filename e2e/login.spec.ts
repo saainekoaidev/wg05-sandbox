@@ -35,8 +35,8 @@ test.describe('US-002 ログインフロー', () => {
     await page.getByRole('button', { name: 'ログイン' }).click()
 
     await expect(page).toHaveURL('/routes')
-    // US-014: フッタは email ではなく name を表示する
-    await expect(page.getByText(`ユーザー: ${TEST_NAME}`)).toBeVisible()
+    // US-019: ヘッダ右上の UserBadge に氏名が出る (「ユーザー: 」ラベル無し, /account へリンク)
+    await expect(page.locator('.user-badge')).toHaveText(TEST_NAME)
   })
 
   test('パスワード不一致でバナーエラーが出て /login に留まる', async ({

@@ -6,6 +6,7 @@ import {
   type FormEvent,
 } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, KIND_OPTIONS, type LineKind } from '../lib/lines'
 
@@ -301,6 +302,7 @@ export function RouteRegister() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="brand">New Route</div>
         <h1>新規通勤経路の登録</h1>
         <p>区間を順に追加すると、出発駅と到着駅は自動で決定されます</p>

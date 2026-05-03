@@ -29,8 +29,8 @@ test.describe('US-001 サインアップフロー', () => {
     // better-auth は sign-up 成功時に自動でセッションを発行するため、
     // そのまま /routes (認証必須スタブ) に着地する。
     await expect(page).toHaveURL('/routes')
-    // US-014: フッタは email ではなく name を表示する
-    await expect(page.getByText(`ユーザー: ${name}`)).toBeVisible()
+    // US-019: ヘッダ右上の UserBadge に氏名が出る (「ユーザー: 」ラベル無し)
+    await expect(page.locator('.user-badge')).toHaveText(name)
   })
 
   test('既登録メールでは「既に登録されています」バナーが出て /register に留まる', async ({
