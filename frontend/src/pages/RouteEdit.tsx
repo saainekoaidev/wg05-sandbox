@@ -495,7 +495,16 @@ export function RouteEdit() {
                     <select
                       aria-label={`区間${idx + 1} 種別`}
                       value={seg.kind}
-                      onChange={(e) => updateSegment(idx, { kind: e.target.value as LineKind })}
+                      onChange={(e) => {
+                        // US-020: 種別変更で現在の路線が新種別と矛盾するならクリア
+                        const newKind = e.target.value as LineKind
+                        const cur = (linesState.lines ?? []).find(
+                          (l) => l.id === seg.lineId,
+                        )
+                        const patch: Partial<Segment> = { kind: newKind }
+                        if (cur && cur.kind !== newKind) patch.lineId = ''
+                        updateSegment(idx, patch)
+                      }}
                       disabled={submitting}
                     >
                       {KIND_OPTIONS.map((k) => (
@@ -508,13 +517,25 @@ export function RouteEdit() {
                     <select
                       aria-label={`区間${idx + 1} 路線名`}
                       value={seg.lineId}
-                      onChange={(e) => updateSegment(idx, { lineId: e.target.value })}
+                      onChange={(e) => {
+                        // US-020: 路線変更でその路線の kind を種別に自動セット
+                        const newLineId = e.target.value
+                        const cur = (linesState.lines ?? []).find(
+                          (l) => l.id === newLineId,
+                        )
+                        const patch: Partial<Segment> = { lineId: newLineId }
+                        if (cur) patch.kind = cur.kind
+                        updateSegment(idx, patch)
+                      }}
                       disabled={submitting}
                     >
                       <option value="">(未選択)</option>
-                      {(linesState.lines ?? []).map((l) => (
-                        <option key={l.id} value={l.id}>{l.name}</option>
-                      ))}
+                      {(linesState.lines ?? [])
+                        // US-020: 現在の種別に一致する路線のみに絞る
+                        .filter((l) => l.kind === seg.kind)
+                        .map((l) => (
+                          <option key={l.id} value={l.id}>{l.name}</option>
+                        ))}
                     </select>
                   </div>
                   <button

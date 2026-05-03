@@ -224,7 +224,7 @@ describe('fetchStationsForLines', () => {
     expect(called).toBe(false)
   })
 
-  it('kana が無い場合は normalize 済み name でフォールバック', async () => {
+  it('US-023: kana が無い場合は空文字 (漢字フォールバックは廃止)', async () => {
     const fakeFetcher = async () => [
       {
         station: { value: 'http://www.wikidata.org/entity/Q-S2' },
@@ -233,7 +233,20 @@ describe('fetchStationsForLines', () => {
       },
     ]
     const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
-    expect(stations[0]!.kana).toBe('名古屋')
+    expect(stations[0]!.kana).toBe('')
+  })
+
+  it('US-023: kana が Wikidata から取れた場合はそれを保持', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-S3' },
+        stationLabel: { value: '名古屋駅' },
+        stationKana: { value: 'なごや' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
+    expect(stations[0]!.kana).toBe('なごや')
   })
 })
 

@@ -53,7 +53,8 @@ body {
   overflow: hidden;
   position: relative;
 }
-.shell--wide { max-width: 920px; }
+/* US-022: 経路詳細 (S05) を含む横長画面を更に拡げて, action ボタンの折り返しを防ぐ。 */
+.shell--wide { max-width: 1080px; }
 
 /* ヘッダー */
 .head {
@@ -88,6 +89,12 @@ body {
   gap: 16px;
 }
 .head-row > div { min-width: 0; }
+/* US-021: 右上の UserBadge (.user-badge, position: absolute, top: 14px) と
+   .head-row の右側列にあるアクションボタン (例: 「+ 新規登録」) が
+   視覚的に重ならないよう, 右側列に上方向の余白を入れる。 */
+.head-row > div:last-child {
+  padding-top: 28px;
+}
 
 /* US-019: ヘッダ右上のユーザー名バッジ。.head 内に絶対配置するため
    既存の .head-row があってもなくてもレイアウトに影響しない。 */
@@ -302,6 +309,8 @@ form { padding: 36px 40px 32px; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* US-022: 「一覧に戻る」等のラベルが文字単位で改行されるのを防止。 */
+  white-space: nowrap;
 }
 .btn-primary {
   flex: 1.6;

@@ -362,6 +362,65 @@ describe('RouteRegister', () => {
     expect(screen.getByLabelText('区間1 到着駅')).toHaveValue('')
     expect(screen.getByText('合計運賃: ¥0')).toBeInTheDocument()
   })
+
+  describe('US-020 種別↔路線 cascade フィルタ (区間)', () => {
+    it('種別=電車 のとき路線セレクトの選択肢は train 路線のみ', () => {
+      renderRouteRegister()
+      const lineSelect = screen.getByRole('combobox', {
+        name: '区間1 路線名',
+      }) as HTMLSelectElement
+      const opts = Array.from(lineSelect.options).map((o) => o.text)
+      expect(opts).toEqual(['(未選択)', 'JR山手線'])
+    })
+
+    it('種別を地下鉄に変えると路線セレクトに subway 路線のみ', async () => {
+      const user = userEvent.setup()
+      renderRouteRegister()
+      const kindSelect = screen.getByRole('combobox', {
+        name: '区間1 種別',
+      }) as HTMLSelectElement
+      await user.selectOptions(kindSelect, 'subway')
+      const lineSelect = screen.getByRole('combobox', {
+        name: '区間1 路線名',
+      }) as HTMLSelectElement
+      const opts = Array.from(lineSelect.options).map((o) => o.text)
+      expect(opts).toEqual(['(未選択)', '東京メトロ銀座線'])
+    })
+
+    it('地下鉄路線を選ぶと種別が地下鉄に自動で揃う', async () => {
+      const user = userEvent.setup()
+      renderRouteRegister()
+      const kindSelect = screen.getByRole('combobox', {
+        name: '区間1 種別',
+      }) as HTMLSelectElement
+      // 一旦 種別 = 地下鉄 にして metro-ginza を選択肢に出す
+      await user.selectOptions(kindSelect, 'subway')
+      const lineSelect = screen.getByRole('combobox', {
+        name: '区間1 路線名',
+      }) as HTMLSelectElement
+      await user.selectOptions(lineSelect, 'metro-ginza')
+      expect(kindSelect.value).toBe('subway')
+      expect(lineSelect.value).toBe('metro-ginza')
+    })
+
+    it('種別を変えて現在選択中の路線が矛盾するならクリアされる', async () => {
+      const user = userEvent.setup()
+      renderRouteRegister()
+      const kindSelect = screen.getByRole('combobox', {
+        name: '区間1 種別',
+      }) as HTMLSelectElement
+      const lineSelect = screen.getByRole('combobox', {
+        name: '区間1 路線名',
+      }) as HTMLSelectElement
+      // 電車 + JR山手線
+      await user.selectOptions(lineSelect, 'jr-yamanote')
+      expect(lineSelect.value).toBe('jr-yamanote')
+      // 種別を地下鉄に → 山手線 (train) が矛盾するためクリア
+      await user.selectOptions(kindSelect, 'subway')
+      expect(kindSelect.value).toBe('subway')
+      expect(lineSelect.value).toBe('')
+    })
+  })
 })
 
 // 派生サマリ・タグ表示の補助検証
