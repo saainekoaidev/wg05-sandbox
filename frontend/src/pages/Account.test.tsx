@@ -499,6 +499,22 @@ describe('Account', () => {
       await user.click(screen.getByRole('button', { name: '表示' }))
       expect(next.type).toBe('text')
     })
+
+    it('US-015: 全パスワード入力欄が autocomplete="new-password" でブラウザ自動補完を抑止', async () => {
+      await setupPasswordSection()
+      const current = screen.getByLabelText(
+        /^現在のパスワード必須$/,
+      ) as HTMLInputElement
+      const next = screen.getByLabelText(
+        /^新しいパスワード必須$/,
+      ) as HTMLInputElement
+      const confirm = screen.getByLabelText(
+        /新しいパスワード \(確認\)/,
+      ) as HTMLInputElement
+      expect(current.autocomplete).toBe('new-password')
+      expect(next.autocomplete).toBe('new-password')
+      expect(confirm.autocomplete).toBe('new-password')
+    })
   })
 
   describe('管理者リンク (US-012)', () => {
@@ -694,6 +710,14 @@ describe('Account', () => {
       } finally {
         confirmSpy.mockRestore()
       }
+    })
+
+    it('US-015: 削除確認用パスワード input も autocomplete="new-password"', async () => {
+      await setupDeleteSection()
+      const delPwd = document.querySelector(
+        '#delPassword',
+      ) as HTMLInputElement
+      expect(delPwd.autocomplete).toBe('new-password')
     })
   })
 })

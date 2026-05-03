@@ -453,7 +453,9 @@ export function Account() {
                 type={pwShow ? 'text' : 'password'}
                 id="pwCurrent"
                 name="pwCurrent"
-                autoComplete="current-password"
+                // US-015: ブラウザの自動補完 (パスワードマネージャ含む) で値を埋めさせない。
+                // 「current-password」だと autofill 対象になるため "new-password" に統一する。
+                autoComplete="new-password"
                 minLength={8}
                 maxLength={32}
                 value={pwCurrent}
@@ -578,7 +580,9 @@ export function Account() {
                 type="password"
                 id="delPassword"
                 name="delPassword"
-                autoComplete="current-password"
+                // US-015: 削除確認用。autofill されて意図せず削除実行されないよう
+                // autoComplete を "new-password" に統一して自動補完を抑止。
+                autoComplete="new-password"
                 minLength={8}
                 maxLength={32}
                 value={delPassword}
