@@ -1,8 +1,11 @@
 /**
- * 東海4県マスタ取り込みスクリプト (US-011)。
+ * 東海4県マスタ取り込みスクリプト (US-011 / US-027)。
  *
  * docs/adr/0007-tokai-import-spec.md に従い、Wikidata SPARQL から
  * 名古屋圏の路線・駅マスタを取り込む。
+ *
+ * US-027: Wikidata 由来の P1814 (kana) が無い駅は kuroshiro による
+ * 漢字→ひらがな変換で kana を自動補完する。
  *
  * 使い方:
  *   pnpm --filter backend exec tsx scripts/import-master-tokai.ts          # 通常実行 (upsert)
@@ -13,6 +16,8 @@
  *   1: SPARQL エラー / DB エラー
  */
 import { PrismaClient } from '@prisma/client'
+import Kuroshiro from 'kuroshiro'
+import KuromojiAnalyzer from 'kuroshiro-analyzer-kuromoji'
 
 const prisma = new PrismaClient()
 
@@ -122,6 +127,70 @@ const NAME_PREFIX_PATTERNS: ReadonlyArray<RegExp> = [
   /^東部丘陵線/,
   /^愛知高速交通/,
 ]
+
+// US-027: kuroshiro lazy singleton。初期化は kuromoji の辞書ロード (数十 MB) を伴うため重い。
+// 取り込み 1 回あたり 1 度だけ初期化する。
+let _kuroshiro: { convert: (s: string, opts: { to: string }) => Promise<string> } | null = null
+async function getKuroshiro() {
+  if (_kuroshiro) return _kuroshiro
+  // kuroshiro は CJS export default を持つため `as any` で取得 (ESM/CJS 互換)
+  const KuroshiroCtor: new () => {
+    init: (a: unknown) => Promise<void>
+    convert: (s: string, opts: { to: string }) => Promise<string>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } = (Kuroshiro as any).default ?? (Kuroshiro as any)
+  const k = new KuroshiroCtor()
+  await k.init(new KuromojiAnalyzer())
+  _kuroshiro = k
+  return k
+}
+
+/** カタカナをひらがなに変換するシンプルなユーティリティ。 */
+export function katakanaToHiragana(s: string): string {
+  return s.replace(/[ァ-ヶ]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60),
+  )
+}
+
+/**
+ * US-027: kana 末尾の「えき」を除去。
+ * Wikidata の P1814 が「かなやまえき」と入っているケースや、
+ * kuroshiro が「駅」を含んだ name に対して「〜えき」を返すケースに対応。
+ */
+export function stripEkiSuffix(kana: string): string {
+  return kana.replace(/えき$/, '')
+}
+
+/**
+ * US-027: 駅名 (漢字) からひらがな読みを推測する。失敗時は空文字を返す。
+ * - 残ったカタカナはひらがなに変換
+ * - 結果に漢字が残っていれば変換失敗とみなして空文字
+ * - 結果が入力と同じなら変換失敗とみなして空文字
+ * - 末尾「えき」は除去
+ */
+export async function inferKana(name: string): Promise<string> {
+  if (!name) return ''
+  // name 自体がひらがなのみ (例: 「いりなか」) なら kuroshiro を呼ばずそのまま採用
+  if (/^[ぁ-んー]+$/.test(name)) return stripEkiSuffix(name)
+  // name がひらがな + カタカナのみ (記号除く) なら katakana → hiragana で kana 化
+  if (/^[ぁ-んァ-ヶー]+$/.test(name)) return stripEkiSuffix(katakanaToHiragana(name))
+  try {
+    const k = await getKuroshiro()
+    const raw = await k.convert(name, { to: 'hiragana' })
+    if (typeof raw !== 'string' || !raw) return ''
+    // 残ったカタカナをひらがなに
+    let h = katakanaToHiragana(raw)
+    // 入力と同じ (変換が起きなかった) → 失敗とみなす
+    if (h === name) return ''
+    // 結果に漢字が残っている (変換できなかった部分がある) → 失敗扱い
+    if (/[一-鿿]/.test(h)) return ''
+    // 末尾「えき」除去
+    h = stripEkiSuffix(h)
+    return h
+  } catch {
+    return ''
+  }
+}
 
 export function normalizeStationName(rawName: string): string {
   let name = rawName.trim()
@@ -272,10 +341,10 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?line WHERE {
     if (!entry) {
       const rawName = r.stationLabel?.value ?? stationQid
       const normalized = normalizeStationName(rawName)
-      // US-023: Wikidata の P1814 (kana) が無い場合は kana を空文字にする。
-      // 漢字 name をフォールバックすると駅マスタ参照画面で「kana に漢字」が
-      // 出てしまい違和感があるため。本格的な漢字→ひらがな変換は別途検討。
-      const kana = r.stationKana?.value ?? ''
+      // US-023: Wikidata の P1814 (kana) が無い場合は kana を空文字にする (US-027 で後段補完)。
+      // US-027: Wikidata の kana が「〜えき」で終わるケース (例: 金山駅 → かなやまえき) は
+      // 末尾「えき」を除去する。
+      const kana = stripEkiSuffix(r.stationKana?.value ?? '')
       entry = {
         id: stationQid,
         name: normalized,
@@ -446,6 +515,23 @@ async function main() {
   const stations = await fetchStationsForLines(allLines.map((l) => l.id))
   // eslint-disable-next-line no-console
   console.log(`  Stations fetched: ${stations.length}`)
+
+  // US-027: kana が空の駅は kuroshiro でひらがな自動補完
+  const missingKanaCount = stations.filter((s) => !s.kana).length
+  if (missingKanaCount > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `  Inferring kana for ${missingKanaCount} stations (kuroshiro)...`,
+    )
+    let filled = 0
+    for (const s of stations) {
+      if (s.kana) continue
+      s.kana = await inferKana(s.name)
+      if (s.kana) filled++
+    }
+    // eslint-disable-next-line no-console
+    console.log(`  Kana filled: ${filled} / ${missingKanaCount}`)
+  }
 
   const stationRes = await upsertStationsAndLinks(stations)
   // eslint-disable-next-line no-console
