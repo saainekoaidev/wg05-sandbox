@@ -1462,7 +1462,7 @@ describe('GET /api/admin/stations (admin 一覧)', () => {
     expect(await res.json()).toEqual({ stations: [] })
   })
 
-  it('admin: kana 昇順でソートされ lineIds + lines を含む', async () => {
+  it('admin: kana 昇順でソートされ lines (路線ごとの code 込み) を含む', async () => {
     const email = 'sg3@example.com'
     const cookie = await signUpAndGetCookie(email, 'Test1234')
     await makeAdmin(email)
@@ -1480,9 +1480,10 @@ describe('GET /api/admin/stations (admin 一覧)', () => {
     })
     await prisma.stationLine.createMany({
       data: [
-        { stationId: 'stn-nagoya', lineId: 'jr-tokaido' },
-        { stationId: 'stn-nagoya', lineId: 'meitetsu' },
-        { stationId: 'stn-gifu', lineId: 'jr-tokaido' },
+        // US-033: code 付きで作成
+        { stationId: 'stn-nagoya', lineId: 'jr-tokaido', code: 'CA68' },
+        { stationId: 'stn-nagoya', lineId: 'meitetsu', code: 'NH34' },
+        { stationId: 'stn-gifu', lineId: 'jr-tokaido', code: 'CA74' },
       ],
     })
 
@@ -1493,10 +1494,12 @@ describe('GET /api/admin/stations (admin 一覧)', () => {
       'stn-nagoya',
     ])
     const nagoya = body.stations.find((s: { id: string }) => s.id === 'stn-nagoya')
-    expect(nagoya.lineIds).toEqual(
-      expect.arrayContaining(['jr-tokaido', 'meitetsu']),
-    )
     expect(nagoya.lines.length).toBe(2)
+    const codeByLine = new Map<string, string>(
+      nagoya.lines.map((l: { id: string; code: string }) => [l.id, l.code]),
+    )
+    expect(codeByLine.get('jr-tokaido')).toBe('CA68')
+    expect(codeByLine.get('meitetsu')).toBe('NH34')
   })
 })
 
@@ -1518,13 +1521,13 @@ describe('POST /api/admin/stations (admin 作成)', () => {
     const res = await postAdminStation(cookie, {
       name: '名古屋',
       kana: 'なごや',
-      lineIds: [],
+      lineLinks: [],
     })
     expect(res.status).toBe(201)
     const body = await res.json()
     expect(body.id).toBeTruthy()
     expect(body.name).toBe('名古屋')
-    expect(body.lineIds).toEqual([])
+    expect(body.lines).toEqual([])
   })
 
   it('admin: id を指定すると指定 id で作成される', async () => {
@@ -1540,20 +1543,20 @@ describe('POST /api/admin/stations (admin 作成)', () => {
     expect((await res.json()).id).toBe('stn-nagoya')
   })
 
-  it('admin: lineIds に存在しない id を含むと 400 (unknown_line)', async () => {
+  it('admin: lineLinks に存在しない lineId を含むと 400 (unknown_line)', async () => {
     const email = 'sp4@example.com'
     const cookie = await signUpAndGetCookie(email, 'Test1234')
     await makeAdmin(email)
     const res = await postAdminStation(cookie, {
       name: 'X',
       kana: 'x',
-      lineIds: ['nonexistent-line'],
+      lineLinks: [{ lineId: 'nonexistent-line', code: '' }],
     })
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe('unknown_line')
   })
 
-  it('admin: lineIds 重複は 1 回だけ紐付けられる', async () => {
+  it('admin: lineLinks 重複は後勝ちで 1 回だけ紐付けられる (US-033)', async () => {
     const email = 'sp5@example.com'
     const cookie = await signUpAndGetCookie(email, 'Test1234')
     await makeAdmin(email)
@@ -1564,10 +1567,61 @@ describe('POST /api/admin/stations (admin 作成)', () => {
       id: 'stn-x',
       name: 'X',
       kana: 'x',
-      lineIds: ['jr-tokaido', 'jr-tokaido'],
+      // 同 lineId が 2 度送られた → 後勝ち (CA68)
+      lineLinks: [
+        { lineId: 'jr-tokaido', code: 'OLD' },
+        { lineId: 'jr-tokaido', code: 'CA68' },
+      ],
     })
     expect(res.status).toBe(201)
-    expect((await res.json()).lineIds).toEqual(['jr-tokaido'])
+    const body = await res.json()
+    expect(body.lines.map((l: { id: string }) => l.id)).toEqual(['jr-tokaido'])
+    expect(body.lines[0].code).toBe('CA68')
+  })
+
+  it('admin: lineLinks に code を含めて 201。DB の StationLine.code に保存される (US-033)', async () => {
+    const email = 'sp9@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.createMany({
+      data: [
+        { id: 'jr-tokaido2', name: 'JR東海道線', kind: 'train' },
+        { id: 'jr-chuo2', name: 'JR中央線', kind: 'train' },
+      ],
+    })
+    const res = await postAdminStation(cookie, {
+      id: 'stn-nag-codes',
+      name: '名古屋',
+      kana: 'なごや',
+      lineLinks: [
+        { lineId: 'jr-tokaido2', code: 'CA68' },
+        { lineId: 'jr-chuo2', code: 'CC00' },
+      ],
+    })
+    expect(res.status).toBe(201)
+    const links = await prisma.stationLine.findMany({
+      where: { stationId: 'stn-nag-codes' },
+      orderBy: { lineId: 'asc' },
+    })
+    expect(links.map((l) => [l.lineId, l.code])).toEqual([
+      ['jr-chuo2', 'CC00'],
+      ['jr-tokaido2', 'CA68'],
+    ])
+  })
+
+  it('admin: code が形式違反 (空白等) は 400 (US-033)', async () => {
+    const email = 'sp10@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({
+      data: { id: 'l-form', name: 'L', kind: 'train' },
+    })
+    const res = await postAdminStation(cookie, {
+      name: 'X',
+      kana: 'x',
+      lineLinks: [{ lineId: 'l-form', code: 'has space' }],
+    })
+    expect(res.status).toBe(400)
   })
 
   it('admin: id 重複は 409', async () => {
@@ -1651,7 +1705,7 @@ describe('PUT /api/admin/stations/:id (admin 更新)', () => {
     })
   })
 
-  it('admin: lineIds の add/remove を一括反映 (差分は deleteMany + create で全置換)', async () => {
+  it('admin: lineLinks の add/remove + code 編集を一括反映 (差分は deleteMany + create で全置換)', async () => {
     const email = 'su4@example.com'
     const cookie = await signUpAndGetCookie(email, 'Test1234')
     await makeAdmin(email)
@@ -1667,23 +1721,38 @@ describe('PUT /api/admin/stations/:id (admin 更新)', () => {
         id: 'stn-multi',
         name: 'M',
         kana: 'm',
-        lineLinks: { create: [{ lineId: 'l-a' }, { lineId: 'l-b' }] },
+        lineLinks: {
+          create: [
+            { lineId: 'l-a', code: 'A1' },
+            { lineId: 'l-b', code: 'B1' },
+          ],
+        },
       },
     })
-    // 初期: a, b → 更新で b, c に
+    // 初期: a=A1, b=B1 → 更新で b=B2, c=C1 に
     const res = await putAdminStation(cookie, 'stn-multi', {
       name: 'M',
       kana: 'm',
-      lineIds: ['l-b', 'l-c'],
+      lineLinks: [
+        { lineId: 'l-b', code: 'B2' },
+        { lineId: 'l-c', code: 'C1' },
+      ],
     })
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.lineIds.sort()).toEqual(['l-b', 'l-c'])
+    expect(body.lines.map((l: { id: string }) => l.id).sort()).toEqual([
+      'l-b',
+      'l-c',
+    ])
     // DB 直で確認
     const links = await prisma.stationLine.findMany({
       where: { stationId: 'stn-multi' },
+      orderBy: { lineId: 'asc' },
     })
-    expect(links.map((l) => l.lineId).sort()).toEqual(['l-b', 'l-c'])
+    expect(links.map((l) => [l.lineId, l.code])).toEqual([
+      ['l-b', 'B2'],
+      ['l-c', 'C1'],
+    ])
   })
 
   it('admin: 駅名を変更しても既存 RouteSegment.fromStation 文字列は追従しない (ADR 0006 §5)', async () => {

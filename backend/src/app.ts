@@ -367,19 +367,30 @@ app.get('/api/stations', async (c) => {
   })
 
   return c.json({
-    stations: stations.map((s) => ({
-      id: s.id,
-      name: s.name,
-      kana: s.kana,
-      // US-030: 駅番号 (例: "CA68"). 手動作成 / 番号未設定駅は空文字。
-      code: s.code,
-      lines: s.lineLinks.map((ll) => ({
+    stations: stations.map((s) => {
+      const lines = s.lineLinks.map((ll) => ({
         id: ll.line.id,
         name: ll.line.name,
         kind: ll.line.kind,
         operator: ll.line.operator,
-      })),
-    })),
+        // US-033: 路線ごとの駅番号
+        code: ll.code,
+      }))
+      // 駅一覧サマリ用の集約 code: 各 lineLink.code をユニーク化して "/" 連結。
+      // US-030 で導入した駅番号列の表示と互換 (ADR 0008)。
+      const codeSet = new Set<string>()
+      for (const ll of s.lineLinks) {
+        if (ll.code) codeSet.add(ll.code)
+      }
+      const code = Array.from(codeSet).sort().join('/')
+      return {
+        id: s.id,
+        name: s.name,
+        kana: s.kana,
+        code,
+        lines,
+      }
+    }),
   })
 })
 
@@ -562,6 +573,16 @@ app.delete('/api/lines/:id', async (c) => {
 // =====================================================================
 
 // id は任意 (省略時 cuid 自動採番)。指定する場合は path-safe な範囲に限定。
+// US-033 / ADR 0008: lineIds から lineLinks (lineId + 駅番号 code) に変更。
+const LineLinkInput = z.object({
+  lineId: z.string().min(1).max(80),
+  code: z
+    .string()
+    .max(30)
+    .regex(/^[A-Za-z0-9/-]*$/, 'code_format')
+    .default(''),
+})
+
 const StationCreateInput = z.object({
   id: z
     .string()
@@ -571,17 +592,17 @@ const StationCreateInput = z.object({
     .optional(),
   name: z.string().min(1).max(50),
   kana: z.string().min(1).max(80),
-  // 紐付ける Line の id 配列。空配列許容。
-  lineIds: z.array(z.string()).max(50).default([]),
+  // 紐付ける Line とその路線における駅番号。空配列許容。
+  lineLinks: z.array(LineLinkInput).max(50).default([]),
 })
 
 const StationUpdate = z.object({
   name: z.string().min(1).max(50),
   kana: z.string().min(1).max(80),
-  lineIds: z.array(z.string()).max(50).default([]),
+  lineLinks: z.array(LineLinkInput).max(50).default([]),
 })
 
-// 管理画面用: 全駅の一覧 (lineIds 込み)
+// 管理画面用: 全駅の一覧 (lines に code 込み)
 app.get('/api/admin/stations', async (c) => {
   const adminGuard = await requireAdmin(c)
   if (adminGuard) return adminGuard
@@ -597,17 +618,18 @@ app.get('/api/admin/stations', async (c) => {
       id: s.id,
       name: s.name,
       kana: s.kana,
-      lineIds: s.lineLinks.map((ll) => ll.line.id),
       lines: s.lineLinks.map((ll) => ({
         id: ll.line.id,
         name: ll.line.name,
         kind: ll.line.kind,
+        // US-033: 路線ごとの駅番号
+        code: ll.code,
       })),
     })),
   })
 })
 
-// lineIds 配列で渡された Line.id がすべて DB に存在するかをチェック。
+// lineLinks 配列で渡された Line.id がすべて DB に存在するかをチェック。
 // 存在しない id があれば最初の 1 件を返す。
 async function findMissingLineId(lineIds: string[]): Promise<string | null> {
   if (lineIds.length === 0) return null
@@ -620,6 +642,18 @@ async function findMissingLineId(lineIds: string[]): Promise<string | null> {
     if (!foundSet.has(id)) return id
   }
   return null
+}
+
+/**
+ * lineLinks 配列から lineId 重複を除き「最後の値を採用」した Map を返す。
+ * 同じ lineId を 2 度送られた場合は後勝ち (フロント側のバグや偶発二重送信の防御)。
+ */
+function dedupLineLinks(
+  links: Array<{ lineId: string; code: string }>,
+): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const l of links) m.set(l.lineId, l.code)
+  return m
 }
 
 app.post('/api/admin/stations', async (c) => {
@@ -639,7 +673,8 @@ app.post('/api/admin/stations', async (c) => {
       400,
     )
   }
-  const lineIds = Array.from(new Set(parsed.data.lineIds))
+  const linkMap = dedupLineLinks(parsed.data.lineLinks)
+  const lineIds = Array.from(linkMap.keys())
   const missing = await findMissingLineId(lineIds)
   if (missing) {
     return c.json({ error: 'unknown_line', lineId: missing }, 400)
@@ -652,7 +687,10 @@ app.post('/api/admin/stations', async (c) => {
         name: parsed.data.name,
         kana: parsed.data.kana,
         lineLinks: {
-          create: lineIds.map((lineId) => ({ lineId })),
+          create: lineIds.map((lineId) => ({
+            lineId,
+            code: linkMap.get(lineId) ?? '',
+          })),
         },
       },
       include: { lineLinks: { include: { line: true } } },
@@ -662,7 +700,12 @@ app.post('/api/admin/stations', async (c) => {
         id: created.id,
         name: created.name,
         kana: created.kana,
-        lineIds: created.lineLinks.map((ll) => ll.line.id),
+        lines: created.lineLinks.map((ll) => ({
+          id: ll.line.id,
+          name: ll.line.name,
+          kind: ll.line.kind,
+          code: ll.code,
+        })),
       },
       201,
     )
@@ -695,7 +738,8 @@ app.put('/api/admin/stations/:id', async (c) => {
       400,
     )
   }
-  const lineIds = Array.from(new Set(parsed.data.lineIds))
+  const linkMap = dedupLineLinks(parsed.data.lineLinks)
+  const lineIds = Array.from(linkMap.keys())
   const missing = await findMissingLineId(lineIds)
   if (missing) {
     return c.json({ error: 'unknown_line', lineId: missing }, 400)
@@ -710,7 +754,10 @@ app.put('/api/admin/stations/:id', async (c) => {
       kana: parsed.data.kana,
       lineLinks: {
         deleteMany: {},
-        create: lineIds.map((lineId) => ({ lineId })),
+        create: lineIds.map((lineId) => ({
+          lineId,
+          code: linkMap.get(lineId) ?? '',
+        })),
       },
     },
     include: { lineLinks: { include: { line: true } } },
@@ -720,7 +767,12 @@ app.put('/api/admin/stations/:id', async (c) => {
     id: updated.id,
     name: updated.name,
     kana: updated.kana,
-    lineIds: updated.lineLinks.map((ll) => ll.line.id),
+    lines: updated.lineLinks.map((ll) => ({
+      id: ll.line.id,
+      name: ll.line.name,
+      kind: ll.line.kind,
+      code: ll.code,
+    })),
   })
 })
 

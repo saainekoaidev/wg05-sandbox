@@ -306,11 +306,13 @@ type FetchedStation = {
   id: string
   name: string
   kana: string
-  /** US-030: 駅番号 (P296)。複数値は "/" 区切りで連結。 */
-  code: string
   sourceUri: string
-  /** P81 で接続する Line.id のうち, 取り込み対象路線に含まれるもののみ */
-  lineIds: string[]
+  /**
+   * P81 で接続する Line.id のうち, 取り込み対象路線に含まれるもの。
+   * US-033 / ADR 0008: 路線ごとに駅番号を持たせるため { lineId, code } のペア配列に変更。
+   * code が空文字なら駅番号未設定。
+   */
+  links: Array<{ lineId: string; code: string }>
 }
 
 export async function fetchStationsForLines(
@@ -321,10 +323,10 @@ export async function fetchStationsForLines(
   const lineVals = lineIds.map((q) => `wd:${q}`).join(' ')
   const prefVals = PREF_QIDS.map((q) => `wd:${q}`).join(' ')
   // 駅情報は重複しがち (P81 が複数あり, 4県内駅で複数県マッチ等)。SELECT 後にアプリ層で集約する。
-  // US-030: P296 (station code, 駅番号) も OPTIONAL で取得。1 駅で複数番号を持つ場合 (例: 名古屋
-  // 駅は CA68/CC00/CF00 等) 複数行で返ってくるためアプリ側で一意集約する。
+  // US-033 / ADR 0008: P296 は statement node + qualifier P81 (路線対応) で取得し, 駅×路線粒度の
+  // 駅番号 (StationLine.code) として割り当てる。qualifier 無しは全 lineLink 共通の値として fallback。
   const query = `
-SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?line WHERE {
+SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine ?line WHERE {
   VALUES ?targetLine { ${lineVals} }
   VALUES ?pref { ${prefVals} }
   ?station wdt:P81 ?targetLine ;
@@ -332,53 +334,82 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?line WHERE {
            wdt:P131* ?pref ;
            wdt:P81 ?line .
   OPTIONAL { ?station wdt:P1814 ?stationKana }
-  OPTIONAL { ?station wdt:P296  ?stationCode }
+  OPTIONAL {
+    ?station p:P296 ?codeStmt .
+    ?codeStmt ps:P296 ?stationCode .
+    OPTIONAL { ?codeStmt pq:P81 ?qualifierLine . }
+  }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "ja,en". }
 }
 `
   const rows = await fetcher(query)
   const targetSet = new Set(lineIds)
-  const byStation = new Map<string, FetchedStation>()
-  // US-030: 駅 -> code 集合 (重複排除のため Set)。後段で "/" 結合する。
-  const codesByStation = new Map<string, Set<string>>()
+
+  type Acc = {
+    name: string
+    kana: string
+    sourceUri: string
+    /** 駅単位の lineId 集合 (取り込み対象に絞った後) */
+    lineIds: Set<string>
+    /** (station, line) ペア → code 候補集合。"/" 結合前の状態。 */
+    codesByLine: Map<string, Set<string>>
+    /** qualifier P81 が無い code (どの路線か不明) の集合。最後に全 lineId へ広げる fallback。 */
+    unattachedCodes: Set<string>
+  }
+  const acc = new Map<string, Acc>()
   for (const r of rows) {
     const stationQid = qidFromUri(r.station!.value)
     const lineQid = qidFromUri(r.line!.value)
-    let entry = byStation.get(stationQid)
-    if (!entry) {
+    let a = acc.get(stationQid)
+    if (!a) {
       const rawName = r.stationLabel?.value ?? stationQid
       const normalized = normalizeStationName(rawName)
-      // US-023 / US-027: kana 取り扱いは継続
       const kana = stripEkiSuffix(r.stationKana?.value ?? '')
-      entry = {
-        id: stationQid,
+      a = {
         name: normalized,
         kana,
-        code: '',
         sourceUri: `https://www.wikidata.org/wiki/${stationQid}`,
-        lineIds: [],
+        lineIds: new Set(),
+        codesByLine: new Map(),
+        unattachedCodes: new Set(),
       }
-      byStation.set(stationQid, entry)
-      codesByStation.set(stationQid, new Set())
+      acc.set(stationQid, a)
     }
-    if (targetSet.has(lineQid) && !entry.lineIds.includes(lineQid)) {
-      entry.lineIds.push(lineQid)
-    }
-    // US-030: 駅番号集約
+    if (targetSet.has(lineQid)) a.lineIds.add(lineQid)
     const codeVal = r.stationCode?.value
     if (codeVal) {
-      codesByStation.get(stationQid)!.add(codeVal)
+      const qLine = r.qualifierLine?.value
+        ? qidFromUri(r.qualifierLine.value)
+        : null
+      if (qLine && targetSet.has(qLine)) {
+        // qualifier が指す路線が取り込み対象なら、その (station, line) 限定の code として登録
+        const set = a.codesByLine.get(qLine) ?? new Set<string>()
+        set.add(codeVal)
+        a.codesByLine.set(qLine, set)
+      } else {
+        // qualifier 無し or qualifier が対象外路線 → 全 lineLink の fallback
+        a.unattachedCodes.add(codeVal)
+      }
     }
   }
-  // 駅番号を "/" 区切りで結合 (順序は string sort で安定化)
-  for (const [qid, codes] of codesByStation) {
-    if (codes.size === 0) continue
-    const sorted = Array.from(codes).sort()
-    byStation.get(qid)!.code = sorted.join('/')
-  }
-  // ADR 0007 §3.5: 取り込み対象路線への接続のみ StationLine に含める
-  // -> targetSet フィルタ済みの lineIds を返す
-  return Array.from(byStation.values())
+
+  return Array.from(acc.entries()).map(([stationQid, a]) => {
+    const lineIds = Array.from(a.lineIds)
+    const links = lineIds.map((lineId) => {
+      const set = new Set<string>(a.codesByLine.get(lineId) ?? [])
+      // qualifier 無し code は「どの路線か断定できない」ため全 link に同じ値を流し込む。
+      for (const c of a.unattachedCodes) set.add(c)
+      const sorted = Array.from(set).sort()
+      return { lineId, code: sorted.join('/') }
+    })
+    return {
+      id: stationQid,
+      name: a.name,
+      kana: a.kana,
+      sourceUri: a.sourceUri,
+      links,
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +456,15 @@ export async function upsertStationsAndLinks(
   let created = 0
   let updated = 0
   let links = 0
+  // ループの度に prisma.line.findMany を走らせるのは非効率なので 1 度だけ取得する。
+  const importedLineIds = (
+    await prisma.line.findMany({
+      where: { sourceUri: { not: null } },
+      select: { id: true },
+    })
+  ).map((l) => l.id)
+  const importedLineSet = new Set(importedLineIds)
+
   for (const s of stations) {
     const existing = await prisma.station.findUnique({ where: { id: s.id } })
     await prisma.station.upsert({
@@ -433,39 +473,34 @@ export async function upsertStationsAndLinks(
         id: s.id,
         name: s.name,
         kana: s.kana,
-        code: s.code,
         sourceUri: s.sourceUri,
         importedAt: now,
       },
       update: {
         name: s.name,
         kana: s.kana,
-        code: s.code,
         sourceUri: s.sourceUri,
         importedAt: now,
       },
     })
     if (existing) updated++
     else created++
+
     // StationLine: 取り込み対象路線への接続を全置換 (sourceUri NOT NULL の Line のみが対象路線)
-    // 既存の Wikidata 由来リンクを掃除して、新しいリンクを張り直す。
-    const importedLineIds = (
-      await prisma.line.findMany({
-        where: { sourceUri: { not: null } },
-        select: { id: true },
-      })
-    ).map((l) => l.id)
-    const importedLineSet = new Set(importedLineIds)
     await prisma.stationLine.deleteMany({
       where: {
         stationId: s.id,
         lineId: { in: Array.from(importedLineSet) },
       },
     })
-    const newLinks = s.lineIds.filter((id) => importedLineSet.has(id))
+    const newLinks = s.links.filter((l) => importedLineSet.has(l.lineId))
     if (newLinks.length > 0) {
       await prisma.stationLine.createMany({
-        data: newLinks.map((lineId) => ({ stationId: s.id, lineId })),
+        data: newLinks.map((l) => ({
+          stationId: s.id,
+          lineId: l.lineId,
+          code: l.code,
+        })),
       })
       links += newLinks.length
     }

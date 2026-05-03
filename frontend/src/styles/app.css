@@ -399,6 +399,46 @@ tbody tr:hover { background: var(--blue-50); }
   font-size: 14px;
 }
 
+/* US-033: 駅マスタの新規/編集における路線セレクタ。
+   各行 = チェックボックス + 種別タグ + 路線名 + 駅番号 input。
+   チェック列は最小幅 (チェックボックス本体程度)、駅番号 input は右側に固定幅で並ぶ。 */
+.line-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.line-picker__row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+.line-picker__row:hover { background: var(--blue-50); }
+.line-picker__check {
+  /* チェックボックス列はチェック本体だけの最小幅に固定 */
+  width: 16px;
+  margin: 0;
+}
+.line-picker__name {
+  font-size: 14px;
+}
+.line-picker__code {
+  width: 12em;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: var(--mono, ui-monospace, monospace);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.line-picker__code:disabled { background: #f3f4f6; color: #9ca3af; }
+
 /* 詳細画面 (read-only 表示) */
 .detail {
   display: flex;
