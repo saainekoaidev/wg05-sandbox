@@ -103,10 +103,9 @@ test.describe('US-003 経路登録フロー', () => {
     await expect(page).toHaveURL('/routes/new')
   })
 
-  // 路線/駅マスタは 2026-05-03 に空にしたため、駅選択 popup の検索結果に依存するこのテストは
-  // 一時的に skip する。US-011 (東海4県マスタ取り込み) 完了後に渋谷→名古屋など現マスタに合わせ
-  // 再有効化する。docs/requirements.md US-011, docs/adr/0005-master-data-source.md 参照。
-  test.fixme('駅選択ボタンでポップアップが開き、選択した駅名が親フォームに反映される', async ({
+  // US-011 (東海4県マスタ取り込み) 完了で再有効化。検索キーワードを東京圏 (渋谷) から
+  // 東海圏 (名古屋) に変更している。
+  test('駅選択ボタンでポップアップが開き、選択した駅名が親フォームに反映される', async ({
     page,
     context,
   }) => {
@@ -125,16 +124,19 @@ test.describe('US-003 経路登録フロー', () => {
       popup.getByRole('heading', { name: '駅マスタ参照' }),
     ).toBeVisible()
 
-    // popup 内で検索 → 選択
-    await popup.getByLabel('駅名 / よみがな').fill('渋')
+    // popup 内で検索 → 選択 (東海4県取り込み済みの「名古屋」駅を使用)
+    await popup.getByLabel('駅名 / よみがな').fill('名古屋')
     await popup.getByRole('button', { name: '検索' }).click()
-    await expect(popup.getByText('渋谷', { exact: true })).toBeVisible()
-    await popup.getByRole('button', { name: '渋谷 を選択' }).click()
+    // 名古屋駅は事業者ごとに複数 (JR / 名鉄 / 近鉄 / 地下鉄 / あおなみ) 存在するため
+    // 最初に見つかる行を選ぶ
+    await expect(popup.getByText('名古屋', { exact: true }).first()).toBeVisible()
+    await popup
+      .getByRole('button', { name: '名古屋 を選択' })
+      .first()
+      .click()
 
-    // popup から postMessage を受けて親フォームの 区間1 出発駅 に「渋谷」が入る。
-    // popup の close イベントは Playwright の捕捉タイミング次第で取りこぼす場合があるため、
-    // 親側の値変化を最終アサーションに置く。
-    await expect(page.getByLabel('区間1 出発駅')).toHaveValue('渋谷', {
+    // popup から postMessage を受けて親フォームの 区間1 出発駅 に「名古屋」が入る。
+    await expect(page.getByLabel('区間1 出発駅')).toHaveValue('名古屋', {
       timeout: 10_000,
     })
   })

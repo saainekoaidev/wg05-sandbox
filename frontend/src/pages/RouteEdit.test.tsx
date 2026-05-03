@@ -15,6 +15,24 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
+vi.mock('../lib/lines', () => ({
+  KIND_OPTIONS: [
+    { value: 'train', label: '電車' },
+    { value: 'subway', label: '地下鉄' },
+    { value: 'bus', label: 'バス' },
+    { value: 'other', label: 'その他' },
+  ],
+  useLines: () => ({
+    lines: [
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, routeSegmentCount: 0, stationCount: 0 },
+    ],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
+
 const ROUTE = {
   id: 'r-001',
   name: '平日通勤',
