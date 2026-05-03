@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { useSession } from '../lib/auth'
+import { changePassword, useSession } from '../lib/auth'
 
 type ApiUser = {
   id: string
@@ -9,41 +9,65 @@ type ApiUser = {
   postalCode: string | null
 }
 
-type FieldErrors = {
+type ProfileErrors = {
   name?: string
   postalCode?: string
 }
 
+type PasswordErrors = {
+  current?: string
+  next?: string
+  confirm?: string
+}
+
 const POSTAL_RE = /^\d{7}$/
 
-/**
- * 7桁数字をハイフン入りで表示する (例: 1500001 → "150-0001")。
- * docs/adr/0004-user-maintenance.md §(a) のとおり保存はハイフン無し, 表示は整形。
- */
 function formatPostal(value: string): string {
   return value.length === 7 ? `${value.slice(0, 3)}-${value.slice(3)}` : value
+}
+
+// US-001 (Register.tsx) と同じ強度ルール (ADR 0004 §パスワード変更フロー)。
+function validatePasswordStrength(p: string): string | undefined {
+  if (!p) return 'パスワードを入力してください'
+  if (p.length < 8 || p.length > 32) {
+    return 'パスワードは8〜32文字で入力してください'
+  }
+  if (!/[A-Z]/.test(p) || !/[a-z]/.test(p) || !/[0-9]/.test(p)) {
+    return 'パスワードは英大文字・小文字・数字をそれぞれ1文字以上含めてください'
+  }
+  return undefined
 }
 
 export function Account() {
   const { data: session, isPending } = useSession()
   const navigate = useNavigate()
 
+  // プロフィール
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<ApiUser | null>(null)
   const [name, setName] = useState('')
   const [postalCode, setPostalCode] = useState('')
-  const [errors, setErrors] = useState<FieldErrors>({})
-  const [bannerError, setBannerError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [profileErrors, setProfileErrors] = useState<ProfileErrors>({})
+  const [profileBanner, setProfileBanner] = useState<string | null>(null)
+  const [profileNotice, setProfileNotice] = useState<string | null>(null)
+  const [savingProfile, setSavingProfile] = useState(false)
 
-  // 認証確定後に GET /api/users/me で現在値を取得
+  // パスワード変更 (US-009)
+  const [pwCurrent, setPwCurrent] = useState('')
+  const [pwNext, setPwNext] = useState('')
+  const [pwConfirm, setPwConfirm] = useState('')
+  const [pwShow, setPwShow] = useState(false)
+  const [pwErrors, setPwErrors] = useState<PasswordErrors>({})
+  const [pwBanner, setPwBanner] = useState<string | null>(null)
+  const [pwNotice, setPwNotice] = useState<string | null>(null)
+  const [savingPassword, setSavingPassword] = useState(false)
+
   useEffect(() => {
     if (isPending || !session) return
     let cancelled = false
     async function load() {
       setLoading(true)
-      setBannerError(null)
+      setProfileBanner(null)
       try {
         const res = await fetch('http://localhost:3000/api/users/me', {
           credentials: 'include',
@@ -54,7 +78,7 @@ export function Account() {
           return
         }
         if (!res.ok) {
-          setBannerError(
+          setProfileBanner(
             'プロフィールの取得に失敗しました。再読み込みをお試しください',
           )
           return
@@ -65,7 +89,7 @@ export function Account() {
         setPostalCode(body.postalCode ?? '')
       } catch {
         if (!cancelled) {
-          setBannerError(
+          setProfileBanner(
             'プロフィールの取得に失敗しました。再読み込みをお試しください',
           )
         }
@@ -82,8 +106,8 @@ export function Account() {
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />
 
-  function validate(): FieldErrors {
-    const next: FieldErrors = {}
+  function validateProfile(): ProfileErrors {
+    const next: ProfileErrors = {}
     const trimmed = name.trim()
     if (!trimmed) next.name = '氏名を入力してください'
     else if (trimmed.length > 50) next.name = '氏名は50文字以内で入力してください'
@@ -93,15 +117,28 @@ export function Account() {
     return next
   }
 
-  async function handleSubmit(e: FormEvent) {
+  function validatePassword(): PasswordErrors {
+    const next: PasswordErrors = {}
+    if (!pwCurrent) next.current = '現在のパスワードを入力してください'
+    const strength = validatePasswordStrength(pwNext)
+    if (strength) next.next = strength
+    else if (pwNext === pwCurrent)
+      next.next = '新しいパスワードは現在のパスワードと異なるものにしてください'
+    if (!pwConfirm) next.confirm = '確認用パスワードを入力してください'
+    else if (pwNext && pwConfirm && pwNext !== pwConfirm)
+      next.confirm = 'パスワードが一致しません'
+    return next
+  }
+
+  async function handleSaveProfile(e: FormEvent) {
     e.preventDefault()
-    setBannerError(null)
-    setNotice(null)
-    const v = validate()
-    setErrors(v)
+    setProfileBanner(null)
+    setProfileNotice(null)
+    const v = validateProfile()
+    setProfileErrors(v)
     if (Object.keys(v).length > 0) return
 
-    setSaving(true)
+    setSavingProfile(true)
     try {
       const res = await fetch('http://localhost:3000/api/users/me', {
         method: 'PUT',
@@ -117,11 +154,11 @@ export function Account() {
         return
       }
       if (res.status === 400) {
-        setBannerError('入力内容に誤りがあります。再度ご確認ください')
+        setProfileBanner('入力内容に誤りがあります。再度ご確認ください')
         return
       }
       if (!res.ok) {
-        setBannerError(
+        setProfileBanner(
           'プロフィールの更新に失敗しました。再度お試しください',
         )
         return
@@ -130,26 +167,71 @@ export function Account() {
       setUser(body)
       setName(body.name)
       setPostalCode(body.postalCode ?? '')
-      setNotice('プロフィールを更新しました')
+      setProfileNotice('プロフィールを更新しました')
     } catch {
-      setBannerError(
+      setProfileBanner(
         'プロフィールの更新に失敗しました。再度お試しください',
       )
     } finally {
-      setSaving(false)
+      setSavingProfile(false)
     }
   }
 
-  function handleReset() {
+  function handleResetProfile() {
     if (!user) return
     const dirty =
-      name.trim() !== user.name || (postalCode || null) !== (user.postalCode ?? null)
+      name.trim() !== user.name ||
+      (postalCode || null) !== (user.postalCode ?? null)
     if (!dirty) return
     if (!window.confirm('入力内容を変更前に戻しますか?')) return
     setName(user.name)
     setPostalCode(user.postalCode ?? '')
-    setErrors({})
-    setBannerError(null)
+    setProfileErrors({})
+    setProfileBanner(null)
+  }
+
+  async function handleChangePassword(e: FormEvent) {
+    e.preventDefault()
+    setPwBanner(null)
+    setPwNotice(null)
+    const v = validatePassword()
+    setPwErrors(v)
+    if (Object.keys(v).length > 0) return
+
+    setSavingPassword(true)
+    try {
+      // ADR 0004 §パスワード変更フロー: revokeOtherSessions=true で他デバイスのセッションを失効
+      const result = await changePassword({
+        currentPassword: pwCurrent,
+        newPassword: pwNext,
+        revokeOtherSessions: true,
+      })
+      if (result.error) {
+        const code = (result.error as { code?: string }).code
+        // INVALID_PASSWORD / INVALID_EMAIL_OR_PASSWORD など
+        if (code && /INVALID/.test(code)) {
+          setPwBanner('現在のパスワードが正しくありません')
+        } else {
+          setPwBanner(
+            'パスワードの変更に失敗しました。時間をおいて再度お試しください',
+          )
+        }
+        return
+      }
+      setPwCurrent('')
+      setPwNext('')
+      setPwConfirm('')
+      setPwErrors({})
+      setPwNotice(
+        'パスワードを変更しました (他のデバイスのセッションは無効化されました)',
+      )
+    } catch {
+      setPwBanner(
+        'パスワードの変更に失敗しました。時間をおいて再度お試しください',
+      )
+    } finally {
+      setSavingPassword(false)
+    }
   }
 
   return (
@@ -160,14 +242,14 @@ export function Account() {
         <p>登録済みのアカウント情報を確認・変更できます</p>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate>
-        {notice && (
+      <form onSubmit={handleSaveProfile} noValidate>
+        {profileNotice && (
           <div className="banner banner--success is-shown" role="status">
-            {notice}{' '}
+            {profileNotice}{' '}
             <button
               type="button"
-              onClick={() => setNotice(null)}
-              aria-label="通知を閉じる"
+              onClick={() => setProfileNotice(null)}
+              aria-label="プロフィール通知を閉じる"
               style={{
                 marginLeft: 8,
                 background: 'transparent',
@@ -181,7 +263,9 @@ export function Account() {
             </button>
           </div>
         )}
-        {bannerError && <div className="banner is-shown">{bannerError}</div>}
+        {profileBanner && (
+          <div className="banner is-shown">{profileBanner}</div>
+        )}
 
         {loading && <div className="empty">読み込み中…</div>}
 
@@ -216,11 +300,16 @@ export function Account() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onBlur={() =>
-                  setErrors((p) => ({ ...p, name: validate().name }))
+                  setProfileErrors((p) => ({
+                    ...p,
+                    name: validateProfile().name,
+                  }))
                 }
-                disabled={saving}
+                disabled={savingProfile}
               />
-              {errors.name && <div className="field-error">{errors.name}</div>}
+              {profileErrors.name && (
+                <div className="field-error">{profileErrors.name}</div>
+              )}
             </div>
 
             <div className="group">
@@ -238,9 +327,12 @@ export function Account() {
                   setPostalCode(e.target.value.replace(/\D/g, '').slice(0, 7))
                 }
                 onBlur={() =>
-                  setErrors((p) => ({ ...p, postalCode: validate().postalCode }))
+                  setProfileErrors((p) => ({
+                    ...p,
+                    postalCode: validateProfile().postalCode,
+                  }))
                 }
-                disabled={saving}
+                disabled={savingProfile}
               />
               <div className="hint">
                 半角数字 7 桁 (ハイフン不要)。空欄のまま保存すると登録解除します。
@@ -248,8 +340,8 @@ export function Account() {
                   <> 表示形式: {formatPostal(postalCode)}</>
                 )}
               </div>
-              {errors.postalCode && (
-                <div className="field-error">{errors.postalCode}</div>
+              {profileErrors.postalCode && (
+                <div className="field-error">{profileErrors.postalCode}</div>
               )}
             </div>
 
@@ -257,25 +349,167 @@ export function Account() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={saving}
+                disabled={savingProfile}
               >
-                {saving ? '保存中…' : '保存する'}
+                {savingProfile ? '保存中…' : '保存する'}
               </button>
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={handleReset}
-                disabled={saving}
+                onClick={handleResetProfile}
+                disabled={savingProfile}
               >
                 変更前に戻す
               </button>
-              <Link to="/routes" className="btn btn-ghost">
-                経路一覧に戻る
-              </Link>
             </div>
           </>
         )}
       </form>
+
+      {!loading && user && (
+        <>
+          <div className="divider">
+            <span>Password</span>
+          </div>
+
+          <form onSubmit={handleChangePassword} noValidate>
+            {pwNotice && (
+              <div className="banner banner--success is-shown" role="status">
+                {pwNotice}{' '}
+                <button
+                  type="button"
+                  onClick={() => setPwNotice(null)}
+                  aria-label="パスワード通知を閉じる"
+                  style={{
+                    marginLeft: 8,
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    fontSize: 'inherit',
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {pwBanner && <div className="banner is-shown">{pwBanner}</div>}
+
+            <div className="group">
+              <label htmlFor="pwCurrent">
+                現在のパスワード<span className="req">必須</span>
+              </label>
+              <input
+                type={pwShow ? 'text' : 'password'}
+                id="pwCurrent"
+                name="pwCurrent"
+                autoComplete="current-password"
+                minLength={8}
+                maxLength={32}
+                value={pwCurrent}
+                onChange={(e) => setPwCurrent(e.target.value)}
+                onBlur={() =>
+                  setPwErrors((p) => ({
+                    ...p,
+                    current: validatePassword().current,
+                  }))
+                }
+                disabled={savingPassword}
+              />
+              {pwErrors.current && (
+                <div className="field-error">{pwErrors.current}</div>
+              )}
+            </div>
+
+            <div className="group">
+              <label htmlFor="pwNext">
+                新しいパスワード<span className="req">必須</span>
+              </label>
+              <div className="pwd-wrap">
+                <input
+                  type={pwShow ? 'text' : 'password'}
+                  id="pwNext"
+                  name="pwNext"
+                  autoComplete="new-password"
+                  placeholder="半角英数記号 8〜32文字"
+                  minLength={8}
+                  maxLength={32}
+                  value={pwNext}
+                  onChange={(e) => setPwNext(e.target.value)}
+                  onBlur={() =>
+                    setPwErrors((p) => ({
+                      ...p,
+                      next: validatePassword().next,
+                    }))
+                  }
+                  disabled={savingPassword}
+                />
+                <button
+                  type="button"
+                  className="pwd-toggle"
+                  onClick={() => setPwShow((v) => !v)}
+                  disabled={savingPassword}
+                >
+                  {pwShow ? '隠す' : '表示'}
+                </button>
+              </div>
+              <div className="hint">
+                英大文字・小文字・数字をそれぞれ1文字以上含めてください
+              </div>
+              {pwErrors.next && (
+                <div className="field-error">{pwErrors.next}</div>
+              )}
+            </div>
+
+            <div className="group">
+              <label htmlFor="pwConfirm">
+                新しいパスワード (確認)<span className="req">必須</span>
+              </label>
+              <input
+                type={pwShow ? 'text' : 'password'}
+                id="pwConfirm"
+                name="pwConfirm"
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={32}
+                value={pwConfirm}
+                onChange={(e) => setPwConfirm(e.target.value)}
+                onBlur={() =>
+                  setPwErrors((p) => ({
+                    ...p,
+                    confirm: validatePassword().confirm,
+                  }))
+                }
+                disabled={savingPassword}
+              />
+              {pwErrors.confirm && (
+                <div className="field-error">{pwErrors.confirm}</div>
+              )}
+            </div>
+
+            <div className="hint">
+              パスワード変更に成功すると、現在ログイン中のセッションは保持され、
+              他のデバイスのセッションのみ無効化されます。
+            </div>
+
+            <div className="actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={savingPassword}
+              >
+                {savingPassword ? '変更中…' : 'パスワードを変更する'}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+
+      <div className="actions actions--no-divider" style={{ marginTop: 24 }}>
+        <Link to="/routes" className="btn btn-ghost">
+          経路一覧に戻る
+        </Link>
+      </div>
     </div>
   )
 }

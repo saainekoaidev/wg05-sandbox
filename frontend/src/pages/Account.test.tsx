@@ -6,12 +6,14 @@ import { Account } from './Account'
 
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
+const changePasswordMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
   signUp: { email: vi.fn() },
   signOut: vi.fn(),
   useSession: () => mockUseSession(),
+  changePassword: (...args: unknown[]) => changePasswordMock(...args),
 }))
 
 function renderAccount() {
@@ -39,6 +41,7 @@ beforeEach(() => {
     isPending: false,
   })
   fetchMock.mockReset()
+  changePasswordMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
 
@@ -287,5 +290,210 @@ describe('Account', () => {
     } finally {
       confirmSpy.mockRestore()
     }
+  })
+
+  describe('パスワード変更 (US-009)', () => {
+    async function setupPasswordSection() {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ME), { status: 200 }),
+      )
+      renderAccount()
+      await screen.findByDisplayValue('山田 太郎')
+    }
+
+    it('現/新/確認すべて空のまま送信するとフィールドエラーが3つ出て changePassword は呼ばれない', async () => {
+      const user = userEvent.setup()
+      await setupPasswordSection()
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(
+        screen.getByText('現在のパスワードを入力してください'),
+      ).toBeInTheDocument()
+      // 新しいパスワード未入力は強度チェックで「パスワードを入力してください」
+      expect(screen.getByText('パスワードを入力してください')).toBeInTheDocument()
+      expect(
+        screen.getByText('確認用パスワードを入力してください'),
+      ).toBeInTheDocument()
+      expect(changePasswordMock).not.toHaveBeenCalled()
+    })
+
+    it('新パスワードが強度不足だとフィールドエラーが出て changePassword は呼ばれない', async () => {
+      const user = userEvent.setup()
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(screen.getByLabelText(/^新しいパスワード必須$/), 'short1A')
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'short1A',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(
+        screen.getByText('パスワードは8〜32文字で入力してください'),
+      ).toBeInTheDocument()
+      expect(changePasswordMock).not.toHaveBeenCalled()
+    })
+
+    it('新パスワードと確認用が不一致なら確認用にエラーが出る', async () => {
+      const user = userEvent.setup()
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(
+        screen.getByLabelText(/^新しいパスワード必須$/),
+        'NewPass1234',
+      )
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'NewPass4321',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(screen.getByText('パスワードが一致しません')).toBeInTheDocument()
+      expect(changePasswordMock).not.toHaveBeenCalled()
+    })
+
+    it('新パスワードが現パスワードと同一だとエラーになる', async () => {
+      const user = userEvent.setup()
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'SamePass1A')
+      await user.type(
+        screen.getByLabelText(/^新しいパスワード必須$/),
+        'SamePass1A',
+      )
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'SamePass1A',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(
+        screen.getByText(
+          '新しいパスワードは現在のパスワードと異なるものにしてください',
+        ),
+      ).toBeInTheDocument()
+      expect(changePasswordMock).not.toHaveBeenCalled()
+    })
+
+    it('正常: changePassword が revokeOtherSessions=true で呼ばれ、成功バナーが出てフィールドがクリアされる', async () => {
+      const user = userEvent.setup()
+      changePasswordMock.mockResolvedValueOnce({ data: {}, error: null })
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(
+        screen.getByLabelText(/^新しいパスワード必須$/),
+        'NewPass1234',
+      )
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'NewPass1234',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      await waitFor(() => {
+        expect(changePasswordMock).toHaveBeenCalledTimes(1)
+      })
+      expect(changePasswordMock).toHaveBeenCalledWith({
+        currentPassword: 'OldPass1234',
+        newPassword: 'NewPass1234',
+        revokeOtherSessions: true,
+      })
+
+      expect(
+        await screen.findByText(/パスワードを変更しました/),
+      ).toBeInTheDocument()
+      // フィールドがクリアされる
+      expect(screen.getByLabelText(/現在のパスワード/)).toHaveValue('')
+      expect(screen.getByLabelText(/^新しいパスワード必須$/)).toHaveValue('')
+      expect(screen.getByLabelText(/新しいパスワード \(確認\)/)).toHaveValue('')
+    })
+
+    it('changePassword が INVALID_PASSWORD を返すと「現在のパスワードが正しくありません」が出る', async () => {
+      const user = userEvent.setup()
+      changePasswordMock.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'INVALID_PASSWORD' },
+      })
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'WrongPass1A')
+      await user.type(
+        screen.getByLabelText(/^新しいパスワード必須$/),
+        'NewPass1234',
+      )
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'NewPass1234',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(
+        await screen.findByText('現在のパスワードが正しくありません'),
+      ).toBeInTheDocument()
+    })
+
+    it('changePassword が想定外コードを返すと汎用エラーバナーが出る', async () => {
+      const user = userEvent.setup()
+      changePasswordMock.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'SOMETHING_ELSE' },
+      })
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(
+        screen.getByLabelText(/^新しいパスワード必須$/),
+        'NewPass1234',
+      )
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'NewPass1234',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(
+        await screen.findByText(
+          'パスワードの変更に失敗しました。時間をおいて再度お試しください',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('changePassword が throw した場合も汎用エラーバナーが出る', async () => {
+      const user = userEvent.setup()
+      changePasswordMock.mockRejectedValueOnce(new Error('network down'))
+      await setupPasswordSection()
+      await user.type(screen.getByLabelText(/現在のパスワード/), 'OldPass1234')
+      await user.type(
+        screen.getByLabelText(/^新しいパスワード必須$/),
+        'NewPass1234',
+      )
+      await user.type(
+        screen.getByLabelText(/新しいパスワード \(確認\)/),
+        'NewPass1234',
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'パスワードを変更する' }),
+      )
+      expect(
+        await screen.findByText(
+          'パスワードの変更に失敗しました。時間をおいて再度お試しください',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('「表示」トグルでパスワード入力が type=text に切り替わる', async () => {
+      const user = userEvent.setup()
+      await setupPasswordSection()
+      const next = screen.getByLabelText(
+        /^新しいパスワード必須$/,
+      ) as HTMLInputElement
+      expect(next.type).toBe('password')
+      await user.click(screen.getByRole('button', { name: '表示' }))
+      expect(next.type).toBe('text')
+    })
   })
 })
