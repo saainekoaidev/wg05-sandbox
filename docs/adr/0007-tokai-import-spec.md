@@ -1,7 +1,7 @@
 # 0007 東海4県マスタ取り込み詳細仕様 (Wikidata SPARQL)
 
 ## Status
-Proposed (2026-05-03) — US-011 実装前にレビュー要
+Accepted (2026-05-03)
 
 ## Context
 
