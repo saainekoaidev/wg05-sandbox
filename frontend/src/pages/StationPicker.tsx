@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useSession } from '../lib/auth'
-import { LINES, type LineKind } from '../lib/lines'
+import { useLines, type LineKind } from '../lib/lines'
 
 type ApiStation = {
   id: string
@@ -43,6 +43,7 @@ export function StationPicker() {
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const linesState = useLines({ enabled: !!session })
 
   if (!isPending && !session) {
     return <Navigate to="/login" replace />
@@ -162,7 +163,7 @@ export function StationPicker() {
               onChange={(e) => setLineId(e.target.value)}
             >
               <option value="">すべての路線</option>
-              {LINES.map((l) => (
+              {(linesState.lines ?? []).map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>

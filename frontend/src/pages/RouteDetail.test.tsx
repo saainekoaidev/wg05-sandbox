@@ -18,17 +18,21 @@ vi.mock('../lib/auth', () => ({
 // 詳細画面のレンダリングテストは「路線名」表示に依存するため、テスト時のみ最小限の
 // 路線データを vi.mock で注入する (本番動作には影響しない)。
 vi.mock('../lib/lines', () => ({
-  LINES: [
-    { id: 'jr-yamanote', name: 'JR山手線', kind: 'train' },
-    { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway' },
-  ],
   KIND_OPTIONS: [
     { value: 'train', label: '電車' },
     { value: 'subway', label: '地下鉄' },
     { value: 'bus', label: 'バス' },
     { value: 'other', label: 'その他' },
   ],
-  useLines: () => ({ lines: null, loading: false, error: null, reload: () => {} }),
+  useLines: () => ({
+    lines: [
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, routeSegmentCount: 0, stationCount: 0 },
+    ],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
 }))
 
 const ROUTE = {

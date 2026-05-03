@@ -101,22 +101,30 @@ model RouteSegment {
 }
 
 /// 路線マスタ (経路登録の路線セレクト + 駅マスタ検索のフィルタで参照)。
-/// id は手動採番のスラッグを想定 (例: "jr-yamanote")。
+/// id は手動採番のスラッグ または Wikidata Q-ID (US-011 取り込み分)。
 model Line {
   id           String         @id
   kind         String
   name         String         @unique
   operator     String?
+  /// 取り込み元 URI (例: https://www.wikidata.org/wiki/Q1129155)。手動作成は NULL。
+  sourceUri    String?
+  /// 取り込み実行時刻。手動作成は NULL。
+  importedAt   DateTime?
   segments     RouteSegment[]
   stationLinks StationLine[]
 }
 
 /// 駅 / 停留所マスタ。種別 (kind) は持たず、接続する Line(s) から派生表示する。
 model Station {
-  id        String        @id @default(cuid())
-  name      String
-  kana      String
-  lineLinks StationLine[]
+  id         String        @id @default(cuid())
+  name       String
+  kana       String
+  /// 取り込み元 URI。手動作成は NULL。docs/adr/0007-tokai-import-spec.md §5。
+  sourceUri  String?
+  /// 取り込み実行時刻。手動作成は NULL。
+  importedAt DateTime?
+  lineLinks  StationLine[]
 
   @@index([name])
 }

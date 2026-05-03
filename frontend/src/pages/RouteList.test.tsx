@@ -19,18 +19,22 @@ vi.mock('../lib/auth', () => ({
 // 一覧画面のレンダリングテストは「路線名」の表示確認に依存するため、テスト時のみ最小限の
 // 路線データを vi.mock で注入する (本番動作には影響しない)。
 vi.mock('../lib/lines', () => ({
-  LINES: [
-    { id: 'jr-yamanote', name: 'JR山手線', kind: 'train' },
-    { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway' },
-  ],
   KIND_OPTIONS: [
     { value: 'train', label: '電車' },
     { value: 'subway', label: '地下鉄' },
     { value: 'bus', label: 'バス' },
     { value: 'other', label: 'その他' },
   ],
-  // useLines はこの画面では使わないが、モジュールのモックとしては export する
-  useLines: () => ({ lines: null, loading: false, error: null, reload: () => {} }),
+  // 一覧画面の路線名表示用フック (US-011 で動的化)。テスト中は固定値を返す。
+  useLines: () => ({
+    lines: [
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, routeSegmentCount: 0, stationCount: 0 },
+    ],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
 }))
 
 function renderRouteList(state?: { notice?: string }) {

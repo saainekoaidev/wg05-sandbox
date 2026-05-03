@@ -6,7 +6,7 @@ import {
 } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useSession } from '../lib/auth'
-import { LINES, KIND_OPTIONS, type LineKind } from '../lib/lines'
+import { useLines, KIND_OPTIONS, type LineKind } from '../lib/lines'
 
 // ---------- 型 ----------
 
@@ -116,6 +116,7 @@ export function RouteEdit() {
   const [conflictBanner, setConflictBanner] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [pendingTarget, setPendingTarget] = useState<PendingTarget | null>(null)
+  const linesState = useLines({ enabled: !!session })
 
   // 駅選択 popup からの postMessage 受信
   useEffect(() => {
@@ -499,7 +500,7 @@ export function RouteEdit() {
                       disabled={submitting}
                     >
                       <option value="">(未選択)</option>
-                      {LINES.map((l) => (
+                      {(linesState.lines ?? []).map((l) => (
                         <option key={l.id} value={l.id}>{l.name}</option>
                       ))}
                     </select>

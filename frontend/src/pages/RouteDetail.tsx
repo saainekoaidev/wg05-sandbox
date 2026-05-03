@@ -7,7 +7,7 @@ import {
   useParams,
 } from 'react-router-dom'
 import { useSession } from '../lib/auth'
-import { LINES, type LineKind } from '../lib/lines'
+import { useLines, type LineKind } from '../lib/lines'
 
 type ApiSegment = {
   id: string
@@ -43,8 +43,6 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
   other: 'tag tag-other',
 }
 
-const LINE_BY_ID = new Map(LINES.map((l) => [l.id, l]))
-
 function formatDateTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
@@ -79,6 +77,12 @@ export function RouteDetail() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const linesState = useLines({ enabled: !!session })
+  const lineById = useMemo(() => {
+    const m = new Map<string, { name: string }>()
+    if (linesState.lines) for (const l of linesState.lines) m.set(l.id, l)
+    return m
+  }, [linesState.lines])
 
   // 認証確定後に詳細を取得
   useEffect(() => {
@@ -287,7 +291,7 @@ export function RouteDetail() {
 
             <div className="segment-list">
               {state.route.segments.map((seg) => {
-                const line = seg.lineId ? LINE_BY_ID.get(seg.lineId) : undefined
+                const line = seg.lineId ? lineById.get(seg.lineId) : undefined
                 return (
                   <div className="seg-item" key={seg.id}>
                     <div className="seg-no">

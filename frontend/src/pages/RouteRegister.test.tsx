@@ -13,6 +13,25 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
+// useLines stub: /api/lines の fetch がテストの fetchMock に取られないよう module 側でモック。
+vi.mock('../lib/lines', () => ({
+  KIND_OPTIONS: [
+    { value: 'train', label: '電車' },
+    { value: 'subway', label: '地下鉄' },
+    { value: 'bus', label: 'バス' },
+    { value: 'other', label: 'その他' },
+  ],
+  useLines: () => ({
+    lines: [
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, routeSegmentCount: 0, stationCount: 0 },
+    ],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
+
 function renderRouteRegister() {
   return render(
     <MemoryRouter initialEntries={['/routes/new']}>

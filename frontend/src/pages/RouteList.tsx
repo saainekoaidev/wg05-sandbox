@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { signOut, useSession } from '../lib/auth'
-import { LINES, type LineKind } from '../lib/lines'
+import { useLines, type LineKind } from '../lib/lines'
 
 type ApiSegment = {
   id: string
@@ -41,18 +41,19 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
 
 const KIND_ORDER: ReadonlyArray<LineKind> = ['train', 'subway', 'bus', 'other']
 
-const LINE_BY_ID = new Map(LINES.map((l) => [l.id, l]))
-
 function uniqueKinds(segments: ApiSegment[]): LineKind[] {
   const set = new Set<LineKind>(segments.map((s) => s.kind))
   return KIND_ORDER.filter((k) => set.has(k))
 }
 
-function uniqueLineNames(segments: ApiSegment[]): string {
+function uniqueLineNames(
+  segments: ApiSegment[],
+  lineById: Map<string, { name: string }>,
+): string {
   const names: string[] = []
   for (const s of segments) {
     if (!s.lineId) continue
-    const line = LINE_BY_ID.get(s.lineId)
+    const line = lineById.get(s.lineId)
     if (line && !names.includes(line.name)) names.push(line.name)
   }
   return names.join(' / ')
@@ -78,6 +79,12 @@ export function RouteList() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const linesState = useLines({ enabled: !!session })
+  const lineById = useMemo(() => {
+    const m = new Map<string, { name: string }>()
+    if (linesState.lines) for (const l of linesState.lines) m.set(l.id, l)
+    return m
+  }, [linesState.lines])
 
   // 認証確定後に一度だけ /api/routes を取得する。
   useEffect(() => {
@@ -124,10 +131,10 @@ export function RouteList() {
       route: r,
       displayName: r.name || '(無題)',
       kinds: uniqueKinds(r.segments),
-      lines: uniqueLineNames(r.segments),
+      lines: uniqueLineNames(r.segments, lineById),
       total: totalFare(r.segments),
     }))
-  }, [routes])
+  }, [routes, lineById])
 
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />

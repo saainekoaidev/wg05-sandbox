@@ -16,6 +16,23 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
+// useLines は固定データを返す stub。テスト本体は /api/stations 検索のみ検証するため
+// 路線セレクトの選択肢は空でも問題ない。fetch を /api/lines に取られないようにモジュール側でモック。
+vi.mock('../lib/lines', () => ({
+  KIND_OPTIONS: [
+    { value: 'train', label: '電車' },
+    { value: 'subway', label: '地下鉄' },
+    { value: 'bus', label: 'バス' },
+    { value: 'other', label: 'その他' },
+  ],
+  useLines: () => ({
+    lines: [],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
+
 function renderPicker() {
   return render(
     <MemoryRouter initialEntries={['/stations']}>

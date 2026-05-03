@@ -1,24 +1,14 @@
 /**
  * 路線関連のクライアント層。
  *
- * - 静的 `LINES`: マスタは意図的に空 (US-011 で東海4県を取り込むまで)。
- * - `useLines()`: GET /api/lines を叩く API 経由フック。管理画面 (US-012) で使用。
- *   既存 routes 系画面 (RouteRegister/Edit/List/Detail/StationPicker) は引き続き
- *   静的 `LINES` を参照しており、US-011 のタイミングで本フックに切り替える前提。
+ * 路線マスタは `GET /api/lines` 経由で動的取得する (US-011)。
+ * 静的 `LINES` 配列は ADR 0007 §11 のとおり廃止し、各画面は `useLines()` フックを使用する。
  *
- * 詳細は docs/adr/0005-master-data-source.md, docs/adr/0006-master-admin.md。
+ * 詳細は docs/adr/0005-master-data-source.md / 0006-master-admin.md / 0007-tokai-import-spec.md。
  */
 import { useCallback, useEffect, useState } from 'react'
 
 export type LineKind = 'train' | 'subway' | 'bus' | 'other'
-
-export type Line = {
-  id: string
-  name: string
-  kind: LineKind
-}
-
-export const LINES: ReadonlyArray<Line> = []
 
 export const KIND_OPTIONS: ReadonlyArray<{ value: LineKind; label: string }> = [
   { value: 'train', label: '電車' },
