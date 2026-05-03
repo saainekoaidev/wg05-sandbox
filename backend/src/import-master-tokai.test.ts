@@ -7,6 +7,7 @@ import {
   upsertStationsAndLinks,
   cleanImported,
   normalizeStationName,
+  ensureJRPrefix,
   JR_LINE_QIDS,
   DENY_LINE_QIDS,
   OTHER_OPERATORS,
@@ -55,22 +56,41 @@ describe('normalizeStationName (US-011)', () => {
   })
 })
 
-describe('fetchJRLines (US-011 JR ホワイトリスト)', () => {
-  it('14 路線分のレコードを Q-ID 直指定で返し operator=JR東海 で固定', async () => {
+describe('ensureJRPrefix (US-018)', () => {
+  it('JR 始まりでなければ "JR" を付ける', () => {
+    expect(ensureJRPrefix('中央本線')).toBe('JR中央本線')
+    expect(ensureJRPrefix('東海道線 (静岡地区)')).toBe('JR東海道線 (静岡地区)')
+    expect(ensureJRPrefix('名松線')).toBe('JR名松線')
+  })
+  it('JR 始まりなら二重付与しない', () => {
+    expect(ensureJRPrefix('JR東海交通事業城北線')).toBe('JR東海交通事業城北線')
+    expect(ensureJRPrefix('JR中央本線')).toBe('JR中央本線')
+  })
+})
+
+describe('fetchJRLines (US-011 JR ホワイトリスト + US-018 JR プレフィックス)', () => {
+  it('14 路線分のレコードを Q-ID 直指定で返し operator=JR東海 で固定 + JR プレフィックス付与', async () => {
     const fakeFetcher = async () => [
       { line: { value: 'http://www.wikidata.org/entity/Q11527981' }, lineLabel: { value: '東海道線 (静岡地区)' } },
       { line: { value: 'http://www.wikidata.org/entity/Q1078110' }, lineLabel: { value: '中央本線' } },
       { line: { value: 'http://www.wikidata.org/entity/Q5359442' }, lineLabel: { value: '名松線' } },
+      { line: { value: 'http://www.wikidata.org/entity/Q7862680' }, lineLabel: { value: 'JR東海交通事業城北線' } },
     ]
     const lines = await fetchJRLines(fakeFetcher as never)
-    expect(lines).toHaveLength(3)
+    expect(lines).toHaveLength(4)
     for (const l of lines) {
       expect(l.operator).toBe('JR東海')
       expect(l.kind).toBe('train')
       expect(l.sourceUri).toContain('https://www.wikidata.org/wiki/')
       expect(l.id.startsWith('Q')).toBe(true)
+      // US-018: 全 JR 路線が "JR" で始まる
+      expect(l.name.startsWith('JR')).toBe(true)
     }
-    expect(lines[0]!.name).toBe('東海道線 (静岡地区)')
+    // 元の name に "JR" が無ければ付与, あれば二重付与しない
+    expect(lines[0]!.name).toBe('JR東海道線 (静岡地区)')
+    expect(lines[1]!.name).toBe('JR中央本線')
+    expect(lines[2]!.name).toBe('JR名松線')
+    expect(lines[3]!.name).toBe('JR東海交通事業城北線')
   })
 
   it('JR_LINE_QIDS に 14 個含まれる', () => {
