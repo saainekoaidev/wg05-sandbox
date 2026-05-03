@@ -6,12 +6,24 @@ import { AdminStations } from './AdminStations'
 
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
+const useLinesMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
   signUp: { email: vi.fn() },
   signOut: vi.fn(),
   useSession: () => mockUseSession(),
+}))
+
+// US-032: AdminStations は useLines を使うようになったので fetch ではなく hook をモック
+vi.mock('../lib/lines', () => ({
+  KIND_OPTIONS: [
+    { value: 'train', label: '電車' },
+    { value: 'subway', label: '地下鉄' },
+    { value: 'bus', label: 'バス' },
+    { value: 'other', label: 'その他' },
+  ],
+  useLines: (opts: { enabled?: boolean }) => useLinesMock(opts),
 }))
 
 function renderAdminStations(state?: { notice?: string }) {
@@ -68,10 +80,9 @@ const STATION_NAGOYA = {
   id: 'stn-nagoya',
   name: '名古屋',
   kana: 'なごや',
-  lineIds: ['jr-tokaido', 'meitetsu'],
   lines: [
-    { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train' },
-    { id: 'meitetsu', name: '名鉄名古屋本線', kind: 'train' },
+    { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA68' },
+    { id: 'meitetsu', name: '名鉄名古屋本線', kind: 'train', code: 'NH36' },
   ],
 }
 
@@ -79,8 +90,7 @@ const STATION_GIFU = {
   id: 'stn-gifu',
   name: '岐阜',
   kana: 'ぎふ',
-  lineIds: ['jr-tokaido'],
-  lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train' }],
+  lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA74' }],
 }
 
 beforeEach(() => {
@@ -89,6 +99,14 @@ beforeEach(() => {
     isPending: false,
   })
   fetchMock.mockReset()
+  useLinesMock.mockReset()
+  // useLines のデフォルト戻り値 (各テストで上書き可能)
+  useLinesMock.mockReturnValue({
+    lines: [LINE_TOKAIDO, LINE_MEITETSU],
+    loading: false,
+    error: null,
+    reload: () => {},
+  })
   vi.stubGlobal('fetch', fetchMock)
 })
 

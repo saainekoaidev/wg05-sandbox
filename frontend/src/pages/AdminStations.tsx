@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
-import { type LineKind } from '../lib/lines'
+import { useLines, type LineKind } from '../lib/lines'
 import { useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -16,8 +16,8 @@ type AdminStation = {
   id: string
   name: string
   kana: string
-  lineIds: string[]
-  lines: { id: string; name: string; kind: LineKind }[]
+  /** US-033: 路線ごとに code (駅番号) を持つ */
+  lines: { id: string; name: string; kind: LineKind; code: string }[]
 }
 
 const KIND_TAG_CLASS: Record<LineKind, string> = {
@@ -119,6 +119,25 @@ export function AdminStations() {
   }, [isAdmin, stationsTick, navigate])
 
   const reloadStations = () => setStationsTick((t) => t + 1)
+
+  // US-032: 種別 + 路線フィルタ
+  const linesState = useLines({ enabled: isAdmin })
+  const [kindFilter, setKindFilter] = useState<'' | LineKind>('')
+  const [lineFilter, setLineFilter] = useState<string>('')
+
+  const filteredStations = useMemo(() => {
+    if (!stations) return null
+    if (!kindFilter && !lineFilter) return stations
+    return stations.filter((s) => {
+      if (lineFilter) {
+        if (!s.lines.some((l) => l.id === lineFilter)) return false
+      }
+      if (kindFilter) {
+        if (!s.lines.some((l) => l.kind === kindFilter)) return false
+      }
+      return true
+    })
+  }, [stations, kindFilter, lineFilter])
 
   const [banner, setBanner] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -286,62 +305,141 @@ export function AdminStations() {
         )}
 
         {stations && stations.length > 0 && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>駅名</th>
-                  <th>よみがな</th>
-                  <th>接続路線</th>
-                  <th className="col-actions">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stations.map((station) => (
-                  <tr key={station.id}>
-                    <td>
-                      <code>{station.id}</code>
-                    </td>
-                    <td>{station.name}</td>
-                    <td>{station.kana}</td>
-                    <td>
-                      <div className="tag-row">
-                        {station.lines.length === 0 && (
-                          <span className="hint">未接続</span>
-                        )}
-                        {station.lines.map((line) => (
-                          <span key={line.id} className={KIND_TAG_CLASS[line.kind]}>
-                            {line.name}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="col-actions">
-                        <Link
-                          to={`/admin/stations/${station.id}/edit`}
-                          className="btn btn-secondary btn-sm"
-                          aria-label={`駅「${station.name}」を編集`}
-                        >
-                          編集
-                        </Link>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          disabled={deletingId === station.id}
-                          onClick={() => handleDelete(station)}
-                          aria-label={`駅「${station.name}」を削除`}
-                        >
-                          {deletingId === station.id ? '削除中…' : '削除'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* US-032: 種別 + 路線フィルタ (cascade) */}
+            <div className="search-row" style={{ marginBottom: 16 }}>
+              <div className="group group--narrow">
+                <label htmlFor="admin-stns-kind">種別</label>
+                <select
+                  id="admin-stns-kind"
+                  value={kindFilter}
+                  onChange={(e) => {
+                    const newKind = e.target.value as '' | LineKind
+                    setKindFilter(newKind)
+                    if (newKind && lineFilter) {
+                      const cur = (linesState.lines ?? []).find(
+                        (l) => l.id === lineFilter,
+                      )
+                      if (cur && cur.kind !== newKind) setLineFilter('')
+                    }
+                  }}
+                >
+                  <option value="">すべて</option>
+                  <option value="train">電車</option>
+                  <option value="subway">地下鉄</option>
+                  <option value="bus">バス</option>
+                  <option value="other">その他</option>
+                </select>
+              </div>
+              <div className="group">
+                <label htmlFor="admin-stns-line">路線</label>
+                <select
+                  id="admin-stns-line"
+                  value={lineFilter}
+                  onChange={(e) => {
+                    const newLine = e.target.value
+                    setLineFilter(newLine)
+                    if (newLine) {
+                      const cur = (linesState.lines ?? []).find(
+                        (l) => l.id === newLine,
+                      )
+                      if (cur) setKindFilter(cur.kind)
+                    }
+                  }}
+                >
+                  <option value="">すべての路線</option>
+                  {(linesState.lines ?? [])
+                    .filter((l) => !kindFilter || l.kind === kindFilter)
+                    .map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="hint" style={{ alignSelf: 'center' }}>
+                {filteredStations?.length ?? 0} / {stations.length} 件
+              </div>
+            </div>
+
+            {filteredStations && filteredStations.length === 0 && (
+              <div className="empty">
+                該当する駅がありません。フィルタを変更してください。
+              </div>
+            )}
+
+            {filteredStations && filteredStations.length > 0 && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>駅名</th>
+                      <th>よみがな</th>
+                      <th>接続路線 / 駅番号</th>
+                      <th className="col-actions">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStations.map((station) => (
+                      <tr key={station.id}>
+                        <td>
+                          <code>{station.id}</code>
+                        </td>
+                        <td>{station.name}</td>
+                        <td>{station.kana}</td>
+                        <td>
+                          {station.lines.length === 0 ? (
+                            <span className="hint">未接続</span>
+                          ) : (
+                            <div
+                              className="tag-row"
+                              style={{ gap: 8, flexWrap: 'wrap' }}
+                            >
+                              {station.lines.map((line) => (
+                                <span
+                                  key={line.id}
+                                  className={KIND_TAG_CLASS[line.kind]}
+                                  title={`${line.name}${line.code ? ` (駅番号: ${line.code})` : ''}`}
+                                >
+                                  {line.name}
+                                  {line.code && (
+                                    <span style={{ marginLeft: 4, opacity: 0.85 }}>
+                                      [{line.code}]
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <div className="col-actions">
+                            <Link
+                              to={`/admin/stations/${station.id}/edit`}
+                              className="btn btn-secondary btn-sm"
+                              aria-label={`駅「${station.name}」を編集`}
+                            >
+                              編集
+                            </Link>
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              disabled={deletingId === station.id}
+                              onClick={() => handleDelete(station)}
+                              aria-label={`駅「${station.name}」を削除`}
+                            >
+                              {deletingId === station.id ? '削除中…' : '削除'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 

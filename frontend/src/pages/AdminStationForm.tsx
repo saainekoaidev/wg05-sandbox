@@ -16,11 +16,14 @@ type AdminStation = {
   id: string
   name: string
   kana: string
-  lineIds: string[]
-  lines: { id: string; name: string; kind: LineKind }[]
+  /** US-033: 路線ごとに code を持つ */
+  lines: { id: string; name: string; kind: LineKind; code: string }[]
 }
 
 const ID_RE = /^[A-Za-z0-9._-]+$/
+// US-033: 駅番号 (路線ごと) のクライアント検証用。空文字許容。
+const CODE_RE = /^[A-Za-z0-9/-]*$/
+const CODE_MAX = 30
 
 const KIND_LABEL: Record<LineKind, string> = {
   train: '電車',
@@ -99,7 +102,11 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
   const [formId, setFormId] = useState('')
   const [formName, setFormName] = useState('')
   const [formKana, setFormKana] = useState('')
-  const [formLineIds, setFormLineIds] = useState<Set<string>>(new Set())
+  // US-033: チェック済み lineId → 駅番号 code の Map。
+  // チェックを外すと entry を削除し駅番号入力もクリアされる。
+  const [formLineCodes, setFormLineCodes] = useState<Map<string, string>>(
+    () => new Map(),
+  )
 
   useEffect(() => {
     if (mode !== 'edit' || prefilled || !isAdmin) return
@@ -127,7 +134,9 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
         setFormId(target.id)
         setFormName(target.name)
         setFormKana(target.kana)
-        setFormLineIds(new Set(target.lineIds))
+        const initialMap = new Map<string, string>()
+        for (const l of target.lines) initialMap.set(l.id, l.code)
+        setFormLineCodes(initialMap)
         setPrefilled(true)
       } catch {
         if (!cancelled) setEditTargetMissing(true)
@@ -143,10 +152,24 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
   const [submitting, setSubmitting] = useState(false)
 
   function toggleLine(lineId: string) {
-    setFormLineIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(lineId)) next.delete(lineId)
-      else next.add(lineId)
+    setFormLineCodes((prev) => {
+      const next = new Map(prev)
+      if (next.has(lineId)) {
+        // US-033: チェック OFF で同行の駅番号入力もクリア
+        next.delete(lineId)
+      } else {
+        next.set(lineId, '')
+      }
+      return next
+    })
+  }
+
+  function setLineCode(lineId: string, code: string) {
+    setFormLineCodes((prev) => {
+      // チェックされていない行に code を入れることはない (UI 側で input が disabled)
+      if (!prev.has(lineId)) return prev
+      const next = new Map(prev)
+      next.set(lineId, code)
       return next
     })
   }
@@ -169,6 +192,18 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
     if (formKana.length > 80)
       return setFormError('よみがなは80文字以内で入力してください')
 
+    // US-033: 駅番号 (code) のクライアント側検証
+    for (const [, code] of formLineCodes) {
+      if (code.length > CODE_MAX) {
+        return setFormError(`駅番号は ${CODE_MAX} 文字以内で入力してください`)
+      }
+      if (code && !CODE_RE.test(code)) {
+        return setFormError(
+          '駅番号は半角英数字 + ハイフン/スラッシュのみ使用できます',
+        )
+      }
+    }
+
     setSubmitting(true)
     try {
       const url =
@@ -179,7 +214,10 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
       const body: Record<string, unknown> = {
         name: formName,
         kana: formKana,
-        lineIds: Array.from(formLineIds),
+        lineLinks: Array.from(formLineCodes.entries()).map(([lineId, code]) => ({
+          lineId,
+          code,
+        })),
       }
       if (mode === 'create' && formId) body.id = formId
 
@@ -406,7 +444,7 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
         </div>
 
         <div className="group">
-          <label>接続路線</label>
+          <label>接続路線 / 駅番号</label>
           {linesState.lines && linesState.lines.length === 0 && (
             <div className="hint">
               路線マスタが空です。先に
@@ -416,38 +454,46 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
           )}
           {linesState.lines && linesState.lines.length > 0 && (
             <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                maxHeight: 240,
-                overflow: 'auto',
-                padding: 8,
-                border: '1px solid var(--line)',
-                borderRadius: 4,
-              }}
+              className="line-picker"
               role="group"
-              aria-label="接続路線の選択"
+              aria-label="接続路線と駅番号の選択"
             >
-              {linesState.lines.map((line: ApiLine) => (
-                <label
-                  key={line.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={formLineIds.has(line.id)}
-                    onChange={() => toggleLine(line.id)}
-                    disabled={submitting}
-                  />
-                  <span className={KIND_TAG_CLASS[line.kind]}>
-                    {KIND_LABEL[line.kind]}
-                  </span>
-                  <span>{line.name}</span>
-                </label>
-              ))}
+              {linesState.lines.map((line: ApiLine) => {
+                const checked = formLineCodes.has(line.id)
+                const code = formLineCodes.get(line.id) ?? ''
+                return (
+                  <div key={line.id} className="line-picker__row">
+                    {/* US-033: チェック列はチェックボックス本体程度の最小幅 */}
+                    <input
+                      type="checkbox"
+                      className="line-picker__check"
+                      checked={checked}
+                      onChange={() => toggleLine(line.id)}
+                      disabled={submitting}
+                      aria-label={`${line.name} に接続`}
+                    />
+                    <span className={KIND_TAG_CLASS[line.kind]}>
+                      {KIND_LABEL[line.kind]}
+                    </span>
+                    <span className="line-picker__name">{line.name}</span>
+                    <input
+                      type="text"
+                      className="line-picker__code"
+                      value={code}
+                      onChange={(e) => setLineCode(line.id, e.target.value)}
+                      placeholder="駅番号 (例: CA68)"
+                      maxLength={CODE_MAX}
+                      disabled={submitting || !checked}
+                      aria-label={`${line.name} の駅番号`}
+                    />
+                  </div>
+                )
+              })}
             </div>
           )}
+          <div className="hint" style={{ marginTop: 6 }}>
+            ※ チェックを外すと駅番号もクリアされます。駅番号は半角英数字 + ハイフン/スラッシュ のみ ({CODE_MAX} 文字以内)。
+          </div>
         </div>
 
         <div className="actions">

@@ -134,6 +134,14 @@ export function AdminLines() {
     [],
   )
 
+  // US-031: 種別フィルタ
+  const [kindFilter, setKindFilter] = useState<'' | LineKind>('')
+  const filteredLines = useMemo(() => {
+    if (!linesState.lines) return null
+    if (!kindFilter) return linesState.lines
+    return linesState.lines.filter((l) => l.kind === kindFilter)
+  }, [linesState.lines, kindFilter])
+
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />
 
@@ -252,24 +260,55 @@ export function AdminLines() {
         )}
 
         {linesState.lines && linesState.lines.length > 0 && (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>路線名</th>
-                  <th>種別</th>
-                  <th>運営会社</th>
-                  <th className="col-num">参照経路</th>
-                  <th className="col-num">接続駅</th>
-                  <th className="col-actions">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedKinds.flatMap((k) =>
-                  linesState
-                    .lines!.filter((l) => l.kind === k)
-                    .map((line) => (
+          <>
+            {/* US-031: 種別フィルタ */}
+            <div className="search-row" style={{ marginBottom: 16 }}>
+              <div className="group group--narrow">
+                <label htmlFor="admin-lines-kind">種別で絞り込み</label>
+                <select
+                  id="admin-lines-kind"
+                  value={kindFilter}
+                  onChange={(e) =>
+                    setKindFilter(e.target.value as '' | LineKind)
+                  }
+                >
+                  <option value="">すべて</option>
+                  <option value="train">電車</option>
+                  <option value="subway">地下鉄</option>
+                  <option value="bus">バス</option>
+                  <option value="other">その他</option>
+                </select>
+              </div>
+              <div className="hint" style={{ alignSelf: 'center' }}>
+                {filteredLines?.length ?? 0} / {linesState.lines.length} 件
+              </div>
+            </div>
+
+            {filteredLines && filteredLines.length === 0 && (
+              <div className="empty">
+                該当する路線がありません。フィルタを変更してください。
+              </div>
+            )}
+
+            {filteredLines && filteredLines.length > 0 && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>路線名</th>
+                      <th>種別</th>
+                      <th>運営会社</th>
+                      <th className="col-num">参照経路</th>
+                      <th className="col-num">接続駅</th>
+                      <th className="col-actions">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedKinds.flatMap((k) =>
+                      filteredLines
+                        .filter((l) => l.kind === k)
+                        .map((line) => (
                       <tr key={line.id}>
                         <td>
                           <code>{line.id}</code>
@@ -314,9 +353,11 @@ export function AdminLines() {
                       </tr>
                     )),
                 )}
-              </tbody>
-            </table>
-          </div>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 

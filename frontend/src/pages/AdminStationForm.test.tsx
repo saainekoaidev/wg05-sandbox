@@ -48,8 +48,8 @@ const STATION_NAGOYA = {
   id: 'stn-nagoya',
   name: '名古屋',
   kana: 'なごや',
-  lineIds: ['jr-tokaido'],
-  lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train' }],
+  // US-033: 路線ごとに code を持つ
+  lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA68' }],
 }
 
 function NavSpy() {
@@ -131,7 +131,7 @@ describe('AdminStationNew (US-026 新規作成)', () => {
     ).toBeInTheDocument()
   })
 
-  it('admin: 駅名 + よみがな + 路線チェックで POST 成功 → /admin/stations へ遷移', async () => {
+  it('admin: 駅名 + よみがな + 路線チェック + 駅番号で POST 成功 → /admin/stations へ遷移 (US-033)', async () => {
     const user = userEvent.setup()
     fetchMock
       .mockResolvedValueOnce(
@@ -143,7 +143,7 @@ describe('AdminStationNew (US-026 新規作成)', () => {
             id: 'auto-1',
             name: '岐阜',
             kana: 'ぎふ',
-            lineIds: ['jr-tokaido'],
+            lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA74' }],
           }),
           { status: 201 },
         ),
@@ -153,7 +153,10 @@ describe('AdminStationNew (US-026 新規作成)', () => {
 
     await user.type(screen.getByLabelText(/^駅名/), '岐阜')
     await user.type(screen.getByLabelText(/よみがな/), 'ぎふ')
-    await user.click(screen.getByLabelText(/JR東海道線/))
+    // US-033: aria-label = "JR東海道線 に接続"
+    await user.click(screen.getByLabelText('JR東海道線 に接続'))
+    // チェック後に駅番号 input が有効化される
+    await user.type(screen.getByLabelText('JR東海道線 の駅番号'), 'CA74')
     await user.click(screen.getByRole('button', { name: '作成する' }))
 
     await waitFor(() => {
@@ -169,8 +172,34 @@ describe('AdminStationNew (US-026 新規作成)', () => {
     expect(body).toMatchObject({
       name: '岐阜',
       kana: 'ぎふ',
-      lineIds: ['jr-tokaido'],
+      lineLinks: [{ lineId: 'jr-tokaido', code: 'CA74' }],
     })
+  })
+
+  it('US-033: チェック OFF にすると同行の駅番号 input が disabled + 値クリア', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(ADMIN), { status: 200 }),
+    )
+    renderNew()
+    await screen.findByLabelText(/^駅名/)
+
+    const check = screen.getByLabelText('JR東海道線 に接続') as HTMLInputElement
+    const codeInput = screen.getByLabelText(
+      'JR東海道線 の駅番号',
+    ) as HTMLInputElement
+    expect(codeInput.disabled).toBe(true)
+
+    // チェック ON で input が有効化
+    await user.click(check)
+    expect(codeInput.disabled).toBe(false)
+    await user.type(codeInput, 'CA68')
+    expect(codeInput.value).toBe('CA68')
+
+    // チェック OFF で input が disabled + 値が消える
+    await user.click(check)
+    expect(codeInput.disabled).toBe(true)
+    expect(codeInput.value).toBe('')
   })
 
   it('駅名空でフィールドエラー (POST 呼ばれない)', async () => {
@@ -234,7 +263,7 @@ describe('AdminStationNew (US-026 新規作成)', () => {
 })
 
 describe('AdminStationEdit (US-026 編集)', () => {
-  it('admin: 既存駅を pre-fill (ID は disabled, 注意書き表示)', async () => {
+  it('admin: 既存駅を pre-fill (ID は disabled, 注意書き + 駅番号表示)', async () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
@@ -254,10 +283,13 @@ describe('AdminStationEdit (US-026 編集)', () => {
     expect(
       screen.getByText(/既存経路に登録されている駅名文字列は/),
     ).toBeInTheDocument()
-    // 既存路線がチェック済み
+    // 既存路線がチェック済み + 駅番号も pre-fill される (US-033)
     expect(
-      (screen.getByLabelText(/JR東海道線/) as HTMLInputElement).checked,
+      (screen.getByLabelText('JR東海道線 に接続') as HTMLInputElement).checked,
     ).toBe(true)
+    expect(
+      (screen.getByLabelText('JR東海道線 の駅番号') as HTMLInputElement).value,
+    ).toBe('CA68')
   })
 
   it('admin: 該当 id 無しなら「該当の駅が見つかりませんでした」', async () => {
@@ -286,7 +318,7 @@ describe('AdminStationEdit (US-026 編集)', () => {
         }),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ...STATION_NAGOYA, lineIds: [] }), {
+        new Response(JSON.stringify({ ...STATION_NAGOYA, lines: [] }), {
           status: 200,
         }),
       )
@@ -294,7 +326,7 @@ describe('AdminStationEdit (US-026 編集)', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/^駅名/)).toHaveValue('名古屋')
     })
-    await user.click(screen.getByLabelText(/JR東海道線/))
+    await user.click(screen.getByLabelText('JR東海道線 に接続'))
     await user.click(screen.getByRole('button', { name: '更新する' }))
 
     await waitFor(() => {
@@ -306,6 +338,6 @@ describe('AdminStationEdit (US-026 編集)', () => {
     expect(url).toContain('/api/admin/stations/stn-nagoya')
     expect(init.method).toBe('PUT')
     const body = JSON.parse(init.body)
-    expect(body.lineIds).toEqual([])
+    expect(body.lineLinks).toEqual([])
   })
 })

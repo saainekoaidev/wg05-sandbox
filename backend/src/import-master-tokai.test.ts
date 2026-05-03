@@ -220,7 +220,7 @@ describe('fetchOtherLines (US-011 事業者ベース)', () => {
 })
 
 describe('fetchStationsForLines', () => {
-  it('同じ駅が複数回 (P81 で複数路線) 出現しても 1 件にまとめ lineIds を集約', async () => {
+  it('同じ駅が複数回 (P81 で複数路線) 出現しても 1 件にまとめ links を集約', async () => {
     const fakeFetcher = async () => [
       {
         station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
@@ -241,10 +241,13 @@ describe('fetchStationsForLines', () => {
     expect(stations[0]!.id).toBe('Q-NAGOYA')
     // 名前は normalize されている
     expect(stations[0]!.name).toBe('名古屋')
-    expect(stations[0]!.lineIds.sort()).toEqual(['Q-LINE-A', 'Q-LINE-B'])
+    const lineIds = stations[0]!.links.map((l) => l.lineId).sort()
+    expect(lineIds).toEqual(['Q-LINE-A', 'Q-LINE-B'])
+    // code は SPARQL に stationCode が無いので全て空文字
+    for (const link of stations[0]!.links) expect(link.code).toBe('')
   })
 
-  it('lineIds の対象外路線へのリンクは取り込まれない (ADR 0007 §3.5)', async () => {
+  it('対象外路線へのリンクは links に含めない (ADR 0007 §3.5)', async () => {
     const fakeFetcher = async () => [
       {
         station: { value: 'http://www.wikidata.org/entity/Q-S1' },
@@ -259,7 +262,7 @@ describe('fetchStationsForLines', () => {
       },
     ]
     const stations = await fetchStationsForLines(['Q-TARGET'], fakeFetcher as never)
-    expect(stations[0]!.lineIds).toEqual(['Q-TARGET'])
+    expect(stations[0]!.links.map((l) => l.lineId)).toEqual(['Q-TARGET'])
   })
 
   it('lineIds が空なら早期 return で fetcher を呼ばない', async () => {
@@ -311,7 +314,7 @@ describe('fetchStationsForLines', () => {
     expect(stations[0]!.kana).toBe('かなやま')
   })
 
-  it('US-030: stationCode が無い駅は code が空文字', async () => {
+  it('US-033: stationCode が無い駅は links 全件 code 空文字', async () => {
     const fakeFetcher = async () => [
       {
         station: { value: 'http://www.wikidata.org/entity/Q-NOCODE' },
@@ -320,42 +323,24 @@ describe('fetchStationsForLines', () => {
       },
     ]
     const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
-    expect(stations[0]!.code).toBe('')
+    expect(stations[0]!.links).toEqual([{ lineId: 'Q-T', code: '' }])
   })
 
-  it('US-030: stationCode が単数なら code にそのまま入る', async () => {
+  it('US-033: qualifier P81 付き stationCode は対応路線の link.code に格納', async () => {
     const fakeFetcher = async () => [
       {
-        station: { value: 'http://www.wikidata.org/entity/Q-CA68' },
+        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
         stationLabel: { value: '名古屋駅' },
         stationCode: { value: 'CA68' },
-        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
-    ]
-    const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
-    expect(stations[0]!.code).toBe('CA68')
-  })
-
-  it('US-030: 同じ駅の stationCode が複数行で返る場合 "/" 連結 (sort 安定)', async () => {
-    const fakeFetcher = async () => [
       {
         station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
         stationLabel: { value: '名古屋駅' },
         stationCode: { value: 'CC00' },
-        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
-      },
-      {
-        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
-        stationLabel: { value: '名古屋駅' },
-        stationCode: { value: 'CA68' },
+        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T2' },
         line: { value: 'http://www.wikidata.org/entity/Q-T2' },
-      },
-      {
-        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
-        stationLabel: { value: '名古屋駅' },
-        // 重複した CA68 (P81 別行で同じ code が出るパターン) は重複排除される
-        stationCode: { value: 'CA68' },
-        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
     ]
     const stations = await fetchStationsForLines(
@@ -363,7 +348,55 @@ describe('fetchStationsForLines', () => {
       fakeFetcher as never,
     )
     expect(stations).toHaveLength(1)
-    expect(stations[0]!.code).toBe('CA68/CC00')
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-T1')).toBe('CA68')
+    expect(linkMap.get('Q-T2')).toBe('CC00')
+  })
+
+  it('US-033: qualifier 無し stationCode は全 link 共通 fallback (まだ路線未確定)', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-FALLBACK' },
+        stationLabel: { value: '名古屋駅' },
+        // qualifier 無し code = どの路線か不明 → 全 link に同じ値を入れる
+        stationCode: { value: 'CA68' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-FALLBACK' },
+        stationLabel: { value: '名古屋駅' },
+        stationCode: { value: 'CA68' }, // 重複は dedup される
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-T1')).toBe('CA68')
+    expect(linkMap.get('Q-T2')).toBe('CA68')
+  })
+
+  it('US-033: 同一 (station, line) ペアに複数 qualifier 付き code は "/" sort 連結', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-MULTI' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'CC00' },
+        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-MULTI' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'CA68' },
+        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T1'], fakeFetcher as never)
+    expect(stations[0]!.links).toEqual([{ lineId: 'Q-T1', code: 'CA68/CC00' }])
   })
 })
 
@@ -432,10 +465,12 @@ describe('upsertStationsAndLinks', () => {
         id: 'Q-S',
         name: 'テスト駅',
         kana: 'てすと',
-        code: '',
         sourceUri: 'https://example/Q-S',
         // 取り込み対象 Q-IMP と 手動 manual-line の両方に紐付け
-        lineIds: ['Q-IMP', 'manual-line'],
+        links: [
+          { lineId: 'Q-IMP', code: 'CA68' },
+          { lineId: 'manual-line', code: '' },
+        ],
       },
     ])
 
@@ -444,6 +479,7 @@ describe('upsertStationsAndLinks', () => {
     })
     // ADR 0007 §3.5: 取り込み対象路線への接続のみ含める
     expect(links.map((l) => l.lineId)).toEqual(['Q-IMP'])
+    expect(links[0]!.code).toBe('CA68')
   })
 
   it('再実行時は既存 StationLine を全置換する (deleteMany + create)', async () => {
@@ -457,9 +493,8 @@ describe('upsertStationsAndLinks', () => {
         id: 'Q-S',
         name: 's',
         kana: 's',
-        code: '',
         sourceUri: 'https://x/S',
-        lineIds: ['Q-A'],
+        links: [{ lineId: 'Q-A', code: '' }],
       },
     ])
     expect(
@@ -474,9 +509,8 @@ describe('upsertStationsAndLinks', () => {
         id: 'Q-S',
         name: 's',
         kana: 's',
-        code: '',
         sourceUri: 'https://x/S',
-        lineIds: ['Q-B'],
+        links: [{ lineId: 'Q-B', code: '' }],
       },
     ])
     expect(
@@ -486,37 +520,47 @@ describe('upsertStationsAndLinks', () => {
     ).toEqual(['Q-B'])
   })
 
-  it('US-030: code が DB に保存される (新規/更新の両方)', async () => {
+  it('US-033: 路線ごとの code が StationLine.code に保存される (新規/更新の両方)', async () => {
     await upsertLines([
-      { id: 'Q-L', name: 'L', kind: 'train', operator: 'X', sourceUri: 'https://x/L' },
+      { id: 'Q-L1', name: 'L1', kind: 'train', operator: 'X', sourceUri: 'https://x/L1' },
+      { id: 'Q-L2', name: 'L2', kind: 'train', operator: 'X', sourceUri: 'https://x/L2' },
     ])
-    // 新規時: code='CA68'
+    // 新規時: 路線ごとに異なる code
     await upsertStationsAndLinks([
       {
         id: 'Q-NAG',
         name: '名古屋',
         kana: 'なごや',
-        code: 'CA68',
         sourceUri: 'https://x/NAG',
-        lineIds: ['Q-L'],
+        links: [
+          { lineId: 'Q-L1', code: 'CA68' },
+          { lineId: 'Q-L2', code: 'CC00' },
+        ],
       },
     ])
-    let s = await prisma.station.findUnique({ where: { id: 'Q-NAG' } })
-    expect(s?.code).toBe('CA68')
+    const after1 = await prisma.stationLine.findMany({
+      where: { stationId: 'Q-NAG' },
+      orderBy: { lineId: 'asc' },
+    })
+    expect(after1.map((l) => [l.lineId, l.code])).toEqual([
+      ['Q-L1', 'CA68'],
+      ['Q-L2', 'CC00'],
+    ])
 
-    // 更新時: code='CA68/CC00' に変更
+    // 更新時: code を変更 + 1 路線削除
     await upsertStationsAndLinks([
       {
         id: 'Q-NAG',
         name: '名古屋',
         kana: 'なごや',
-        code: 'CA68/CC00',
         sourceUri: 'https://x/NAG',
-        lineIds: ['Q-L'],
+        links: [{ lineId: 'Q-L1', code: 'CA68/CC00' }],
       },
     ])
-    s = await prisma.station.findUnique({ where: { id: 'Q-NAG' } })
-    expect(s?.code).toBe('CA68/CC00')
+    const after2 = await prisma.stationLine.findMany({
+      where: { stationId: 'Q-NAG' },
+    })
+    expect(after2.map((l) => [l.lineId, l.code])).toEqual([['Q-L1', 'CA68/CC00']])
   })
 })
 
@@ -549,9 +593,8 @@ describe('cleanImported', () => {
         id: 'Q-S',
         name: 's',
         kana: 's',
-        code: '',
         sourceUri: 'https://x/S',
-        lineIds: ['Q-IMP'],
+        links: [{ lineId: 'Q-IMP', code: '' }],
       },
     ])
 
