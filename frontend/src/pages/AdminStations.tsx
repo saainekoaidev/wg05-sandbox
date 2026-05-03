@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
-import { useLines, type ApiLine, type LineKind } from '../lib/lines'
+import { type LineKind } from '../lib/lines'
 import { useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -20,18 +20,6 @@ type AdminStation = {
   lines: { id: string; name: string; kind: LineKind }[]
 }
 
-type FormMode =
-  | { kind: 'closed' }
-  | { kind: 'create' }
-  | { kind: 'edit'; station: AdminStation }
-
-const KIND_LABEL: Record<LineKind, string> = {
-  train: '電車',
-  subway: '地下鉄',
-  bus: 'バス',
-  other: 'その他',
-}
-
 const KIND_TAG_CLASS: Record<LineKind, string> = {
   train: 'tag tag-train',
   subway: 'tag tag-subway',
@@ -39,11 +27,16 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
   other: 'tag tag-other',
 }
 
-const ID_RE = /^[A-Za-z0-9._-]+$/
-
 export function AdminStations() {
   const { data: session, isPending } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  const initialNotice =
+    typeof (location.state as { notice?: unknown } | null)?.notice === 'string'
+      ? ((location.state as { notice: string }).notice)
+      : null
+  const [notice, setNotice] = useState<string | null>(initialNotice)
 
   const [me, setMe] = useState<ApiUser | null>(null)
   const [meLoading, setMeLoading] = useState(true)
@@ -81,9 +74,7 @@ export function AdminStations() {
     }
   }, [isPending, session, navigate])
 
-  // role 確定 + admin 時のみ /api/lines + /api/admin/stations を取得
-  const enabled = me?.role === 'admin'
-  const linesState = useLines({ enabled })
+  const isAdmin = me?.role === 'admin'
 
   const [stations, setStations] = useState<AdminStation[] | null>(null)
   const [stationsLoading, setStationsLoading] = useState(false)
@@ -91,7 +82,7 @@ export function AdminStations() {
   const [stationsTick, setStationsTick] = useState(0)
 
   useEffect(() => {
-    if (!enabled) return
+    if (!isAdmin) return
     let cancelled = false
     async function load() {
       setStationsLoading(true)
@@ -125,135 +116,12 @@ export function AdminStations() {
     return () => {
       cancelled = true
     }
-  }, [enabled, stationsTick, navigate])
+  }, [isAdmin, stationsTick, navigate])
 
   const reloadStations = () => setStationsTick((t) => t + 1)
 
-  // フォーム状態
-  const [mode, setMode] = useState<FormMode>({ kind: 'closed' })
-  const [formId, setFormId] = useState('')
-  const [formName, setFormName] = useState('')
-  const [formKana, setFormKana] = useState('')
-  const [formLineIds, setFormLineIds] = useState<Set<string>>(new Set())
-  const [formError, setFormError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-
   const [banner, setBanner] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-
-  function openCreate() {
-    setMode({ kind: 'create' })
-    setFormId('')
-    setFormName('')
-    setFormKana('')
-    setFormLineIds(new Set())
-    setFormError(null)
-  }
-
-  function openEdit(station: AdminStation) {
-    setMode({ kind: 'edit', station })
-    setFormId(station.id)
-    setFormName(station.name)
-    setFormKana(station.kana)
-    setFormLineIds(new Set(station.lineIds))
-    setFormError(null)
-  }
-
-  function closeForm() {
-    setMode({ kind: 'closed' })
-    setFormError(null)
-  }
-
-  function toggleLine(lineId: string) {
-    setFormLineIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(lineId)) next.delete(lineId)
-      else next.add(lineId)
-      return next
-    })
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setFormError(null)
-    if (mode.kind === 'closed') return
-
-    if (mode.kind === 'create' && formId) {
-      if (!ID_RE.test(formId))
-        return setFormError(
-          'IDは半角英数字 + ハイフン/ドット/アンダースコアのみ使用できます',
-        )
-      if (formId.length > 80)
-        return setFormError('IDは80文字以内で入力してください')
-    }
-    if (!formName) return setFormError('駅名を入力してください')
-    if (formName.length > 50)
-      return setFormError('駅名は50文字以内で入力してください')
-    if (!formKana) return setFormError('よみがなを入力してください')
-    if (formKana.length > 80)
-      return setFormError('よみがなは80文字以内で入力してください')
-
-    setSubmitting(true)
-    try {
-      const url =
-        mode.kind === 'create'
-          ? 'http://localhost:3000/api/admin/stations'
-          : `http://localhost:3000/api/admin/stations/${mode.station.id}`
-      const method = mode.kind === 'create' ? 'POST' : 'PUT'
-      const body: Record<string, unknown> = {
-        name: formName,
-        kana: formKana,
-        lineIds: Array.from(formLineIds),
-      }
-      if (mode.kind === 'create' && formId) body.id = formId
-
-      const res = await fetch(url, {
-        method,
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (res.status === 401) {
-        navigate('/login', { replace: true })
-        return
-      }
-      if (res.status === 403) {
-        setFormError('管理者権限が必要です')
-        return
-      }
-      if (res.status === 400) {
-        const errBody = (await res.json().catch(() => ({}))) as {
-          error?: string
-        }
-        if (errBody.error === 'unknown_line') {
-          setFormError('紐付けに含まれる路線が存在しません (削除済み?)')
-        } else {
-          setFormError('入力内容に誤りがあります')
-        }
-        return
-      }
-      if (res.status === 404) {
-        setFormError('編集対象の駅が見つかりませんでした (削除済み?)')
-        return
-      }
-      if (res.status === 409) {
-        setFormError('同じIDの駅が既に登録されています')
-        return
-      }
-      if (!res.ok) {
-        setFormError('保存に失敗しました。再度お試しください')
-        return
-      }
-      closeForm()
-      setNotice(mode.kind === 'create' ? '駅を作成しました' : '駅を更新しました')
-      reloadStations()
-    } catch {
-      setFormError('保存に失敗しました。再度お試しください')
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   async function handleDelete(station: AdminStation) {
     if (deletingId) return
@@ -335,7 +203,7 @@ export function AdminStations() {
     )
   }
 
-  if (!me || me.role !== 'admin') {
+  if (!me || !isAdmin) {
     return (
       <div className="shell shell--wide">
         <div className="head">
@@ -371,13 +239,9 @@ export function AdminStations() {
             <p>登録済みの駅と接続路線を管理します (管理者専用)</p>
           </div>
           <div>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={openCreate}
-            >
+            <Link to="/admin/stations/new" className="btn btn-primary btn-sm">
               + 新規作成
-            </button>
+            </Link>
           </div>
         </div>
       </div>
@@ -405,11 +269,8 @@ export function AdminStations() {
         )}
         {banner && <div className="banner is-shown">{banner}</div>}
         {stationsError && <div className="banner is-shown">{stationsError}</div>}
-        {linesState.error && (
-          <div className="banner is-shown">{linesState.error}</div>
-        )}
 
-        {(stationsLoading || linesState.loading) && !stations && (
+        {stationsLoading && !stations && (
           <div className="empty">読み込み中…</div>
         )}
 
@@ -417,13 +278,9 @@ export function AdminStations() {
           <div className="empty">
             <p>駅マスタは現在空です。</p>
             <p style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={openCreate}
-              >
+              <Link to="/admin/stations/new" className="btn btn-primary btn-sm">
                 + 新規作成
-              </button>
+              </Link>
             </p>
           </div>
         )}
@@ -462,14 +319,13 @@ export function AdminStations() {
                     </td>
                     <td>
                       <div className="col-actions">
-                        <button
-                          type="button"
+                        <Link
+                          to={`/admin/stations/${station.id}/edit`}
                           className="btn btn-secondary btn-sm"
-                          onClick={() => openEdit(station)}
                           aria-label={`駅「${station.name}」を編集`}
                         >
                           編集
-                        </button>
+                        </Link>
                         <button
                           type="button"
                           className="btn btn-danger btn-sm"
@@ -486,152 +342,6 @@ export function AdminStations() {
               </tbody>
             </table>
           </div>
-        )}
-
-        {mode.kind !== 'closed' && (
-          <>
-            <div className="divider">
-              <span>{mode.kind === 'create' ? 'New Station' : 'Edit Station'}</span>
-            </div>
-            <form onSubmit={handleSubmit} noValidate>
-              {formError && <div className="banner is-shown">{formError}</div>}
-
-              {mode.kind === 'edit' && (
-                <div className="hint" style={{ marginBottom: 12 }}>
-                  ※ 駅名を変更しても、既存経路に登録されている駅名文字列は
-                  自動更新されません (ADR 0006 §5)
-                </div>
-              )}
-
-              {mode.kind === 'create' && (
-                <div className="group">
-                  <label htmlFor="form-id">ID</label>
-                  <input
-                    type="text"
-                    id="form-id"
-                    value={formId}
-                    onChange={(e) => setFormId(e.target.value)}
-                    disabled={submitting}
-                    placeholder="例: stn-nagoya (空欄なら自動採番)"
-                    maxLength={80}
-                  />
-                  <div className="hint">
-                    任意 (空欄で cuid 自動採番)。半角英数字 + ハイフン/ドット/アンダースコア。
-                    作成後の変更は不可。
-                  </div>
-                </div>
-              )}
-
-              {mode.kind === 'edit' && (
-                <div className="group">
-                  <label htmlFor="form-id-readonly">ID</label>
-                  <input
-                    type="text"
-                    id="form-id-readonly"
-                    value={formId}
-                    disabled
-                    readOnly
-                  />
-                </div>
-              )}
-
-              <div className="group">
-                <label htmlFor="form-name">
-                  駅名<span className="req">必須</span>
-                </label>
-                <input
-                  type="text"
-                  id="form-name"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  disabled={submitting}
-                  maxLength={50}
-                />
-              </div>
-
-              <div className="group">
-                <label htmlFor="form-kana">
-                  よみがな<span className="req">必須</span>
-                </label>
-                <input
-                  type="text"
-                  id="form-kana"
-                  value={formKana}
-                  onChange={(e) => setFormKana(e.target.value)}
-                  disabled={submitting}
-                  maxLength={80}
-                  placeholder="例: なごや"
-                />
-              </div>
-
-              <div className="group">
-                <label>接続路線</label>
-                {linesState.lines && linesState.lines.length === 0 && (
-                  <div className="hint">
-                    路線マスタが空です。先に
-                    <Link to="/admin/lines">路線マスタ管理</Link>
-                    で路線を登録してください。
-                  </div>
-                )}
-                {linesState.lines && linesState.lines.length > 0 && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                      maxHeight: 200,
-                      overflow: 'auto',
-                      padding: 8,
-                      border: '1px solid var(--line)',
-                      borderRadius: 4,
-                    }}
-                    role="group"
-                    aria-label="接続路線の選択"
-                  >
-                    {linesState.lines.map((line: ApiLine) => (
-                      <label
-                        key={line.id}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formLineIds.has(line.id)}
-                          onChange={() => toggleLine(line.id)}
-                          disabled={submitting}
-                        />
-                        <span className={KIND_TAG_CLASS[line.kind]}>
-                          {KIND_LABEL[line.kind]}
-                        </span>
-                        <span>{line.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="actions">
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={submitting}
-                >
-                  {submitting
-                    ? '保存中…'
-                    : mode.kind === 'create'
-                    ? '作成する'
-                    : '更新する'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={closeForm}
-                  disabled={submitting}
-                >
-                  キャンセル
-                </button>
-              </div>
-            </form>
-          </>
         )}
       </div>
 

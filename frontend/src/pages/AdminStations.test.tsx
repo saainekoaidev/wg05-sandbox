@@ -14,9 +14,11 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
-function renderAdminStations() {
+function renderAdminStations(state?: { notice?: string }) {
   return render(
-    <MemoryRouter initialEntries={['/admin/stations']}>
+    <MemoryRouter
+      initialEntries={[{ pathname: '/admin/stations', state: state ?? null }]}
+    >
       <Routes>
         <Route path="/admin/stations" element={<AdminStations />} />
         <Route path="/login" element={<div>LOGIN_PAGE</div>} />
@@ -94,14 +96,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// ヘルパ: admin で me + lines + stations を順に返す mock セットアップ
-function mockAdminInitialFetch(stations: unknown[] = [], lines: unknown[] = []) {
+// ヘルパ: admin で me + stations を順に返す mock セットアップ (US-026 でインラインフォーム廃止に伴い lines fetch は無くなった)
+function mockAdminInitialFetch(stations: unknown[] = [], _lines: unknown[] = []) {
   fetchMock
     .mockResolvedValueOnce(
       new Response(JSON.stringify(ADMIN), { status: 200 }),
-    )
-    .mockResolvedValueOnce(
-      new Response(JSON.stringify({ lines }), { status: 200 }),
     )
     .mockResolvedValueOnce(
       new Response(JSON.stringify({ stations }), { status: 200 }),
@@ -130,15 +129,25 @@ describe('AdminStations', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('admin で 0 件は空状態', async () => {
+  it('admin で 0 件は空状態 + 新規作成リンク (US-026)', async () => {
     mockAdminInitialFetch([], [])
     renderAdminStations()
     expect(
       await screen.findByText('駅マスタは現在空です。'),
     ).toBeInTheDocument()
+    const links = screen.getAllByRole('link', { name: '+ 新規作成' })
+    for (const a of links) {
+      expect(a).toHaveAttribute('href', '/admin/stations/new')
+    }
   })
 
-  it('admin で複数件は kana 昇順で並ぶ + 接続路線タグが描画される', async () => {
+  it('navigate state.notice があれば通知バナー表示 (新規/編集画面からの遷移想定)', async () => {
+    mockAdminInitialFetch([], [])
+    renderAdminStations({ notice: '駅を作成しました' })
+    expect(await screen.findByText(/駅を作成しました/)).toBeInTheDocument()
+  })
+
+  it('admin で複数件は kana 昇順で並び、編集は /admin/stations/:id/edit リンク (US-026)', async () => {
     mockAdminInitialFetch(
       [STATION_GIFU, STATION_NAGOYA],
       [LINE_TOKAIDO, LINE_MEITETSU],
@@ -160,9 +169,18 @@ describe('AdminStations', () => {
     expect(
       within(rowNagoya as HTMLElement).getByText('名鉄名古屋本線'),
     ).toBeInTheDocument()
+
+    // 編集リンクは /admin/stations/:id/edit
+    const editNagoya = within(rowNagoya as HTMLElement).getByRole('link', {
+      name: /駅「名古屋」を編集/,
+    })
+    expect(editNagoya).toHaveAttribute(
+      'href',
+      '/admin/stations/stn-nagoya/edit',
+    )
   })
 
-  it('新規作成: 駅名 + よみがな + チェックした路線で POST が credentials 付きで叩かれる', async () => {
+  it.skip('legacy: 新規作成 inline form (US-026 で /admin/stations/new に分離)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([], [LINE_TOKAIDO, LINE_MEITETSU])
     fetchMock
@@ -214,7 +232,7 @@ describe('AdminStations', () => {
     })
   })
 
-  it('新規作成: 駅名空欄でフィールドエラー', async () => {
+  it.skip('legacy: 新規作成 駅名空欄エラー (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([], [])
     renderAdminStations()
@@ -226,7 +244,7 @@ describe('AdminStations', () => {
     expect(screen.getByText('駅名を入力してください')).toBeInTheDocument()
   })
 
-  it('新規作成: ID 形式違反でフィールドエラー', async () => {
+  it.skip('legacy: 新規作成 ID 形式違反 (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([], [])
     renderAdminStations()
@@ -245,7 +263,7 @@ describe('AdminStations', () => {
     ).toBeInTheDocument()
   })
 
-  it('編集: 既存値が pre-fill され、ID は disabled、注意書きが表示される', async () => {
+  it.skip('legacy: 編集 pre-fill (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([STATION_NAGOYA], [LINE_TOKAIDO, LINE_MEITETSU])
     renderAdminStations()
@@ -273,7 +291,7 @@ describe('AdminStations', () => {
     ).toBe(true)
   })
 
-  it('編集: 路線チェックを外して更新すると PUT で空 lineIds が送られる', async () => {
+  it.skip('legacy: 編集 PUT (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([STATION_NAGOYA], [LINE_TOKAIDO, LINE_MEITETSU])
     fetchMock
@@ -315,7 +333,7 @@ describe('AdminStations', () => {
     expect(body.lineIds).toEqual([])
   })
 
-  it('400 unknown_line でフォーム内バナー', async () => {
+  it.skip('legacy: 400 unknown_line (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([], [LINE_TOKAIDO])
     fetchMock.mockResolvedValueOnce(
@@ -336,7 +354,7 @@ describe('AdminStations', () => {
     ).toBeInTheDocument()
   })
 
-  it('409 重複でフォーム内バナー', async () => {
+  it.skip('legacy: 409 重複 (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([], [])
     fetchMock.mockResolvedValueOnce(
@@ -374,7 +392,8 @@ describe('AdminStations', () => {
       await waitFor(() => {
         expect(screen.getByText('駅を削除しました')).toBeInTheDocument()
       })
-      const [url, init] = fetchMock.mock.calls[3]!
+      // 初期 fetch 2 件 (me + stations) + DELETE で 3 件目
+      const [url, init] = fetchMock.mock.calls[2]!
       expect(url).toContain('/api/admin/stations/stn-nagoya')
       expect(init.method).toBe('DELETE')
     } finally {
@@ -392,14 +411,14 @@ describe('AdminStations', () => {
       await user.click(
         screen.getByRole('button', { name: /駅「名古屋」を削除/ }),
       )
-      // 初期 3 件のみ
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      // 初期 fetch 2 件 (me + stations) のみ
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     } finally {
       confirmSpy.mockRestore()
     }
   })
 
-  it('路線マスタが空のとき, フォームの路線セクションに /admin/lines への誘導が出る', async () => {
+  it.skip('legacy: 路線マスタが空のとき /admin/lines 誘導 (inline form)', async () => {
     const user = userEvent.setup()
     mockAdminInitialFetch([], [])
     renderAdminStations()

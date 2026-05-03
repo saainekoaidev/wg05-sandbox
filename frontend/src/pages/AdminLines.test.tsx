@@ -14,9 +14,11 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
-function renderAdminLines() {
+function renderAdminLines(state?: { notice?: string }) {
   return render(
-    <MemoryRouter initialEntries={['/admin/lines']}>
+    <MemoryRouter
+      initialEntries={[{ pathname: '/admin/lines', state: state ?? null }]}
+    >
       <Routes>
         <Route path="/admin/lines" element={<AdminLines />} />
         <Route path="/login" element={<div>LOGIN_PAGE</div>} />
@@ -115,7 +117,7 @@ describe('AdminLines', () => {
     })
   })
 
-  it('admin で 0 件なら空状態 + 新規作成ボタン', async () => {
+  it('admin で 0 件なら空状態 + 新規作成リンク (US-025)', async () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
@@ -127,13 +129,15 @@ describe('AdminLines', () => {
     expect(
       await screen.findByText('路線マスタは現在空です。'),
     ).toBeInTheDocument()
-    // ヘッダ + 空状態 で 2 つ
-    expect(
-      screen.getAllByRole('button', { name: '+ 新規作成' }).length,
-    ).toBeGreaterThanOrEqual(1)
+    // 新規作成は Link になっており href が /admin/lines/new
+    const links = screen.getAllByRole('link', { name: '+ 新規作成' })
+    expect(links.length).toBeGreaterThanOrEqual(1)
+    for (const a of links) {
+      expect(a).toHaveAttribute('href', '/admin/lines/new')
+    }
   })
 
-  it('admin でデータがあれば table にレンダリングされる', async () => {
+  it('admin でデータがあれば table にレンダリングされ、編集は /admin/lines/:id/edit リンク (US-025)', async () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
@@ -146,22 +150,28 @@ describe('AdminLines', () => {
     renderAdminLines()
     expect(await screen.findByText('JR東海道線')).toBeInTheDocument()
     expect(screen.getByText('名古屋市営地下鉄名城線')).toBeInTheDocument()
-    // 削除ボタンが、参照件数 > 0 の路線では disabled
+
+    // 編集は Link
+    const rowA = screen.getByText('JR東海道線').closest('tr')!
+    const editA = within(rowA as HTMLElement).getByRole('link', {
+      name: /路線「JR東海道線」を編集/,
+    })
+    expect(editA).toHaveAttribute('href', '/admin/lines/jr-tokaido/edit')
+
+    // 削除は引き続きボタン (参照件数 > 0 の路線では disabled)
     const rowB = screen.getByText('名古屋市営地下鉄名城線').closest('tr')!
     const deleteB = within(rowB as HTMLElement).getByRole('button', {
       name: /路線「名古屋市営地下鉄名城線」を削除/,
     })
     expect(deleteB).toBeDisabled()
     // 参照 0 件は有効
-    const rowA = screen.getByText('JR東海道線').closest('tr')!
     const deleteA = within(rowA as HTMLElement).getByRole('button', {
       name: /路線「JR東海道線」を削除/,
     })
     expect(deleteA).not.toBeDisabled()
   })
 
-  it('新規作成: ID 形式違反でフィールドエラー', async () => {
-    const user = userEvent.setup()
+  it('navigate state.notice があれば通知バナー表示 (新規/編集画面からの遷移想定)', async () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
@@ -169,24 +179,14 @@ describe('AdminLines', () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ lines: [] }), { status: 200 }),
       )
-    renderAdminLines()
-    await screen.findByText('路線マスタは現在空です。')
-    await user.click(
-      screen.getAllByRole('button', { name: '+ 新規作成' })[0]!,
-    )
-    await user.type(screen.getByLabelText(/^ID/), 'has space')
-    await user.type(screen.getByLabelText(/^路線名/), 'X')
-    await user.click(screen.getByRole('button', { name: '作成する' }))
+    renderAdminLines({ notice: '路線を作成しました' })
     expect(
-      screen.getByText(
-        'IDは半角英数字 + ハイフン/ドット/アンダースコアのみ使用できます',
-      ),
+      await screen.findByText(/路線を作成しました/),
     ).toBeInTheDocument()
-    // POST は呼ばれない
-    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('新規作成: 正常 → POST 成功 → reload + 成功バナー', async () => {
+  // (旧 inline form テストは US-025 で AdminLineForm.test.tsx に移行)
+  it.skip('legacy: 新規作成 (inline form)', async () => {
     const user = userEvent.setup()
     fetchMock
       .mockResolvedValueOnce(
@@ -228,7 +228,7 @@ describe('AdminLines', () => {
     })
   })
 
-  it('新規作成: 409 (重複) なら duplicate バナーがフォーム内に出る', async () => {
+  it.skip('legacy: 新規作成 409 重複 (inline form)', async () => {
     const user = userEvent.setup()
     fetchMock
       .mockResolvedValueOnce(
@@ -255,7 +255,7 @@ describe('AdminLines', () => {
     ).toBeInTheDocument()
   })
 
-  it('編集: 既存値が pre-fill され, ID は disabled', async () => {
+  it.skip('legacy: 編集 pre-fill (inline form)', async () => {
     const user = userEvent.setup()
     fetchMock
       .mockResolvedValueOnce(
@@ -276,7 +276,7 @@ describe('AdminLines', () => {
     expect(screen.getByLabelText(/運営会社/)).toHaveValue('JR東海')
   })
 
-  it('編集: PUT 成功で reload + 成功バナー', async () => {
+  it.skip('legacy: 編集 PUT 成功 (inline form)', async () => {
     const user = userEvent.setup()
     const updated = { ...LINE_A, name: 'JR東海道線 (改称)' }
     fetchMock

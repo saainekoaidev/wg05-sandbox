@@ -76,27 +76,32 @@ test.describe('US-012 路線マスタ管理 (admin)', () => {
     const initialName = `E2E路線-${RUN_TAG}`
     const updatedName = `E2E路線UPD-${RUN_TAG}`
 
-    // 新規作成
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    // 新規作成 (US-025: Link で /admin/lines/new に遷移)
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
+    await expect(page).toHaveURL('/admin/lines/new')
     await page.getByLabel(/^ID/).fill(id)
     await page.getByLabel(/^路線名/).fill(initialName)
     await page.getByLabel(/^種別/).selectOption('train')
     await page.getByLabel(/運営会社/).fill('JR東海')
     await page.getByRole('button', { name: '作成する' }).click()
 
+    await expect(page).toHaveURL('/admin/lines')
     await expect(page.getByText('路線を作成しました')).toBeVisible()
     await expect(page.getByText(initialName)).toBeVisible()
     await expect(page.getByText('JR東海').first()).toBeVisible()
 
-    // 編集
+    // 編集 (US-025: Link で /admin/lines/:id/edit に遷移)
     await page
-      .getByRole('button', { name: `路線「${initialName}」を編集` })
+      .getByRole('link', { name: `路線「${initialName}」を編集` })
       .click()
+    await expect(page).toHaveURL(`/admin/lines/${id}/edit`)
     // ID は disabled
     await expect(page.getByLabel(/^ID/)).toBeDisabled()
     const nameInput = page.getByLabel(/^路線名/)
     await nameInput.fill(updatedName)
     await page.getByRole('button', { name: '更新する' }).click()
+
+    await expect(page).toHaveURL('/admin/lines')
 
     await expect(page.getByText('路線を更新しました')).toBeVisible()
     await expect(page.getByText(updatedName)).toBeVisible()
@@ -124,21 +129,27 @@ test.describe('US-012 路線マスタ管理 (admin)', () => {
     const name1 = `E2E重複1-${RUN_TAG}`
     const name2 = `E2E重複2-${RUN_TAG}`
 
-    // 1 件目
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    // 1 件目 (US-025: Link で /admin/lines/new)
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
     await page.getByLabel(/^ID/).fill(id)
     await page.getByLabel(/^路線名/).fill(name1)
     await page.getByRole('button', { name: '作成する' }).click()
+    await expect(page).toHaveURL('/admin/lines')
     await expect(page.getByText('路線を作成しました')).toBeVisible()
 
-    // 同じ ID で 2 件目 → 409
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    // 同じ ID で 2 件目 → 409 (フォーム画面に留まる)
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
     await page.getByLabel(/^ID/).fill(id)
     await page.getByLabel(/^路線名/).fill(name2)
     await page.getByRole('button', { name: '作成する' }).click()
     await expect(
       page.getByText('同じIDまたは路線名が既に登録されています'),
     ).toBeVisible()
+    await expect(page).toHaveURL('/admin/lines/new')
+
+    // /admin/lines に戻ってから後始末
+    await page.getByRole('link', { name: 'キャンセル' }).click()
+    await expect(page).toHaveURL('/admin/lines')
 
     // 後始末: 作った行を削除
     page.once('dialog', (d) => void d.accept())
