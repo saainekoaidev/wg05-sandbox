@@ -14,6 +14,22 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
+// 路線マスタは本番では US-011 取り込み待ちで空配列。
+// 詳細画面のレンダリングテストは「路線名」表示に依存するため、テスト時のみ最小限の
+// 路線データを vi.mock で注入する (本番動作には影響しない)。
+vi.mock('../lib/lines', () => ({
+  LINES: [
+    { id: 'jr-yamanote', name: 'JR山手線', kind: 'train' },
+    { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway' },
+  ],
+  KIND_OPTIONS: [
+    { value: 'train', label: '電車' },
+    { value: 'subway', label: '地下鉄' },
+    { value: 'bus', label: 'バス' },
+    { value: 'other', label: 'その他' },
+  ],
+}))
+
 const ROUTE = {
   id: 'r-001',
   name: '平日通勤',
