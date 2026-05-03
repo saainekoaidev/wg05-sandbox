@@ -146,7 +146,17 @@ export function StationPicker() {
             <select
               id="picker-kind"
               value={kind}
-              onChange={(e) => setKind(e.target.value as '' | LineKind)}
+              onChange={(e) => {
+                // US-017: 種別を変えると現在選択中の路線がその種別と矛盾する場合は line をクリア
+                const newKind = e.target.value as '' | LineKind
+                setKind(newKind)
+                if (newKind && lineId) {
+                  const cur = (linesState.lines ?? []).find(
+                    (l) => l.id === lineId,
+                  )
+                  if (cur && cur.kind !== newKind) setLineId('')
+                }
+              }}
             >
               <option value="">すべて</option>
               <option value="train">電車</option>
@@ -160,14 +170,27 @@ export function StationPicker() {
             <select
               id="picker-line"
               value={lineId}
-              onChange={(e) => setLineId(e.target.value)}
+              onChange={(e) => {
+                // US-017: 路線を選ぶと該当路線の種別を自動セット (種別との整合を保つ)
+                const newLineId = e.target.value
+                setLineId(newLineId)
+                if (newLineId) {
+                  const cur = (linesState.lines ?? []).find(
+                    (l) => l.id === newLineId,
+                  )
+                  if (cur) setKind(cur.kind)
+                }
+              }}
             >
               <option value="">すべての路線</option>
-              {(linesState.lines ?? []).map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
+              {(linesState.lines ?? [])
+                // US-017: 種別が選ばれていれば該当 kind の路線のみに絞り込む
+                .filter((l) => !kind || l.kind === kind)
+                .map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
             </select>
           </div>
           <button type="submit" className="btn btn-primary" disabled={loading}>

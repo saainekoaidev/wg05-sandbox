@@ -16,8 +16,7 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
-// useLines は固定データを返す stub。テスト本体は /api/stations 検索のみ検証するため
-// 路線セレクトの選択肢は空でも問題ない。fetch を /api/lines に取られないようにモジュール側でモック。
+// US-017: cascade フィルタテスト用に複数 kind の路線を返す stub
 vi.mock('../lib/lines', () => ({
   KIND_OPTIONS: [
     { value: 'train', label: '電車' },
@@ -26,7 +25,12 @@ vi.mock('../lib/lines', () => ({
     { value: 'other', label: 'その他' },
   ],
   useLines: () => ({
-    lines: [],
+    lines: [
+      { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', operator: 'JR東海', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'meitetsu-honsen', name: '名鉄名古屋本線', kind: 'train', operator: '名鉄', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'higashiyama', name: '東山線', kind: 'subway', operator: '名古屋市交通局', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'meijo', name: '名城線', kind: 'subway', operator: '名古屋市交通局', routeSegmentCount: 0, stationCount: 0 },
+    ],
     loading: false,
     error: null,
     reload: () => {},
@@ -246,5 +250,85 @@ describe('StationPicker', () => {
 
     expect(screen.getByLabelText('駅名 / よみがな')).toHaveValue('')
     expect(screen.queryByText('渋谷')).not.toBeInTheDocument()
+  })
+
+  describe('US-017 種別↔路線 cascade フィルタ', () => {
+    it('種別=電車 を選ぶと路線セレクトの選択肢が train 路線のみになる', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      await user.selectOptions(screen.getByLabelText('種別'), 'train')
+      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+      const optTexts = Array.from(lineSelect.options).map((o) => o.text)
+      expect(optTexts).toEqual([
+        'すべての路線',
+        'JR東海道線',
+        '名鉄名古屋本線',
+      ])
+    })
+
+    it('種別=地下鉄 を選ぶと路線セレクトの選択肢が subway 路線のみになる', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      await user.selectOptions(screen.getByLabelText('種別'), 'subway')
+      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+      const optTexts = Array.from(lineSelect.options).map((o) => o.text)
+      expect(optTexts).toEqual(['すべての路線', '東山線', '名城線'])
+    })
+
+    it('種別=すべて (空文字) なら路線リストは全件表示', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      // 一旦 train を選ぶ
+      await user.selectOptions(screen.getByLabelText('種別'), 'train')
+      // 戻す
+      await user.selectOptions(screen.getByLabelText('種別'), '')
+      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+      expect(lineSelect.options.length).toBe(5) // すべての路線 + 4 件
+    })
+
+    it('路線を選ぶと種別がその路線の kind に自動で揃う', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
+      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+      // 初期は両方 ""
+      expect(kindSelect.value).toBe('')
+      expect(lineSelect.value).toBe('')
+
+      // 地下鉄路線 (東山線) を選ぶ
+      await user.selectOptions(lineSelect, 'higashiyama')
+      expect(kindSelect.value).toBe('subway')
+      expect(lineSelect.value).toBe('higashiyama')
+    })
+
+    it('種別を変更して現在選択中の路線と矛盾するときは路線がクリアされる', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
+      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+
+      // 電車路線 (JR東海道線) を選ぶ → 種別=電車に揃う
+      await user.selectOptions(lineSelect, 'jr-tokaido')
+      expect(kindSelect.value).toBe('train')
+      expect(lineSelect.value).toBe('jr-tokaido')
+
+      // 種別を 地下鉄 に変更 → JR東海道線 (電車) と矛盾するため路線クリア
+      await user.selectOptions(kindSelect, 'subway')
+      expect(kindSelect.value).toBe('subway')
+      expect(lineSelect.value).toBe('')
+    })
+
+    it('種別を変更しても路線がその種別と整合する場合は路線をクリアしない', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
+      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+
+      // 電車路線を選ぶ
+      await user.selectOptions(lineSelect, 'jr-tokaido')
+      // 種別 = 電車 (同じ) に再選択
+      await user.selectOptions(kindSelect, 'train')
+      expect(lineSelect.value).toBe('jr-tokaido')
+    })
   })
 })
