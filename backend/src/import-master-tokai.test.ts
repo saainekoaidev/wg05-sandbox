@@ -8,6 +8,8 @@ import {
   cleanImported,
   normalizeStationName,
   ensureJRPrefix,
+  katakanaToHiragana,
+  stripEkiSuffix,
   JR_LINE_QIDS,
   DENY_LINE_QIDS,
   OTHER_OPERATORS,
@@ -53,6 +55,53 @@ describe('normalizeStationName (US-011)', () => {
   })
   it('空白 trim も行う', () => {
     expect(normalizeStationName(' 浜松駅 ')).toBe('浜松')
+  })
+})
+
+describe('katakanaToHiragana (US-027)', () => {
+  it('カタカナ全種をひらがなに変換', () => {
+    expect(katakanaToHiragana('ナゴヤドーム')).toBe('なごやどーむ')
+    expect(katakanaToHiragana('リニモ')).toBe('りにも')
+  })
+  it('ひらがな・漢字・英数字はそのまま', () => {
+    expect(katakanaToHiragana('なごや')).toBe('なごや')
+    expect(katakanaToHiragana('名古屋')).toBe('名古屋')
+    expect(katakanaToHiragana('JR1')).toBe('JR1')
+  })
+  it('混在もカタカナ部のみ変換', () => {
+    expect(katakanaToHiragana('ナゴヤ駅')).toBe('なごや駅')
+  })
+})
+
+describe('inferKana early-return (US-027)', () => {
+  // pure ひらがな or ひらがな+カタカナ は kuroshiro 初期化を回避できる早期 return パス。
+  // kuroshiro 本体の動作は import スクリプト実行時に検証する (重いので unit には含めない)。
+  it('pure ひらがな name はそのまま採用 (えき除去)', async () => {
+    const { inferKana } = await import('../scripts/import-master-tokai.js')
+    expect(await inferKana('いりなか')).toBe('いりなか')
+    expect(await inferKana('かなやまえき')).toBe('かなやま')
+  })
+  it('ひらがな+カタカナのみは katakana→hiragana 変換', async () => {
+    const { inferKana } = await import('../scripts/import-master-tokai.js')
+    expect(await inferKana('ナゴヤ')).toBe('なごや')
+  })
+  it('空文字は空文字を返す', async () => {
+    const { inferKana } = await import('../scripts/import-master-tokai.js')
+    expect(await inferKana('')).toBe('')
+  })
+})
+
+describe('stripEkiSuffix (US-027)', () => {
+  it('末尾えきを除去', () => {
+    expect(stripEkiSuffix('かなやまえき')).toBe('かなやま')
+    expect(stripEkiSuffix('なごやえき')).toBe('なごや')
+  })
+  it('末尾でなければ残す', () => {
+    expect(stripEkiSuffix('えきまえ')).toBe('えきまえ')
+    expect(stripEkiSuffix('なごや')).toBe('なごや')
+  })
+  it('空文字は空のまま', () => {
+    expect(stripEkiSuffix('')).toBe('')
   })
 })
 
@@ -247,6 +296,19 @@ describe('fetchStationsForLines', () => {
     ]
     const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
     expect(stations[0]!.kana).toBe('なごや')
+  })
+
+  it('US-027: Wikidata の kana が「〜えき」で終わる場合はえき除去', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-K' },
+        stationLabel: { value: '金山駅' },
+        stationKana: { value: 'かなやまえき' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
+    expect(stations[0]!.kana).toBe('かなやま')
   })
 })
 
