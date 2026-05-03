@@ -1,6 +1,6 @@
 # UI 設計索引
 
-本ドキュメントは, WG05 通勤経路登録システム ([requirements.md](requirements.md) US-001〜US-007) の全画面の対応関係 / 共通設計ルール / 画面間連携を集約する。各画面の詳細仕様は `ui-screens/` 配下の個別 md を参照すること。
+本ドキュメントは, WG05 通勤経路登録システム ([requirements.md](requirements.md)) の全画面の対応関係 / 共通設計ルール / 画面間連携を集約する。各画面の詳細仕様は `ui-screens/` 配下の個別 md を参照すること。
 
 ---
 
@@ -15,6 +15,7 @@
 | S05 | 経路詳細 | `/routes/:id` | 認証必須（オーナー） | [経路詳細](ui-screens/screen_design_route_detail.md) | [route_detail.html](ui-images/route_detail.html) |
 | S06 | 経路編集 | `/routes/:id/edit` | 認証必須（オーナー） | [経路編集](ui-screens/screen_design_route_edit.md) | [route_edit.html](ui-images/route_edit.html) |
 | S07 | 駅マスタ参照 | `/stations`（モーダル併用） | 認証必須 | [駅マスタ参照](ui-screens/screen_design_station_master.md) | [station_master.html](ui-images/station_master.html) |
+| S08 | プロフィール設定 | `/account` | 認証必須 | [プロフィール設定](ui-screens/screen_design_account.md) | (画面イメージ未作成) |
 
 ---
 
@@ -29,6 +30,7 @@
 | US-005 | 経路詳細 | S05 経路詳細 | - |
 | US-006 | 経路編集 | S06 経路編集 | S07 駅マスタ参照 |
 | US-007 | 経路削除 | S05 経路詳細（削除ボタン） | S03 経路一覧（削除ボタン） |
+| US-008 | プロフィール (氏名/郵便番号) 変更 | S08 プロフィール設定 | S03 経路一覧（フッタ動線） |
 
 ---
 
@@ -54,6 +56,9 @@
    │   │     ←────(更新成功)────────────────
    │   │
    │   └→ 削除 (一覧 / 詳細から)  → 確認 → 一覧へ
+   │
+   │   ├→ S08 プロフィール設定 (一覧フッタの「ユーザー: ...」リンク)
+   │   │     └→ 一覧へ戻る
    │
    └────────────── ログアウト → S02 ─┘
 ```

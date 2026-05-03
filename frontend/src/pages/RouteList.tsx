@@ -327,7 +327,9 @@ export function RouteList() {
       </div>
 
       <div className="foot foot--split">
-        <span>ユーザー: {session.user.email}</span>
+        <Link to="/account" aria-label="アカウント設定を開く">
+          ユーザー: {session.user.email}
+        </Link>
         <a
           href="#"
           onClick={(e) => {
