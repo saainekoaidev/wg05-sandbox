@@ -522,6 +522,27 @@ describe('Account', () => {
       const link = screen.getByRole('link', { name: '路線マスタ管理' })
       expect(link).toHaveAttribute('href', '/admin/lines')
     })
+
+    it('role=admin では「駅マスタ管理」リンクが /admin/stations を指して描画される', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...ME, role: 'admin' }), { status: 200 }),
+      )
+      renderAccount()
+      await screen.findByDisplayValue('山田 太郎')
+      const link = screen.getByRole('link', { name: '駅マスタ管理' })
+      expect(link).toHaveAttribute('href', '/admin/stations')
+    })
+
+    it('role=user では「駅マスタ管理」リンクは描画されない', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...ME, role: 'user' }), { status: 200 }),
+      )
+      renderAccount()
+      await screen.findByDisplayValue('山田 太郎')
+      expect(
+        screen.queryByRole('link', { name: '駅マスタ管理' }),
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe('アカウント削除 (US-010)', () => {

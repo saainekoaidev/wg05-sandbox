@@ -615,6 +615,9 @@ export function Account() {
             <Link to="/admin/lines" className="btn btn-secondary">
               路線マスタ管理
             </Link>
+            <Link to="/admin/stations" className="btn btn-secondary">
+              駅マスタ管理
+            </Link>
           </div>
         </>
       )}
