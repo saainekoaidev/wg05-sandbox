@@ -116,11 +116,46 @@ async function getStations(cookie: string | null, query: string): Promise<Respon
   return app.fetch(new Request(url, { method: 'GET', headers }))
 }
 
+/**
+ * マスタが必要なテストでだけ呼ぶ最小限の路線/駅 fixture。
+ * seed.ts は 2026-05-03 にいったん空化したため、各テストが必要な分だけ生成する。
+ * docs/adr/0005-master-data-source.md / 0006-master-admin.md の方針に揃える。
+ */
+async function setupMasterFixture() {
+  await prisma.line.createMany({
+    data: [
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: '東京メトロ' },
+      { id: 'toei-bus-01', name: '都営バス01系統', kind: 'bus', operator: '東京都交通局' },
+    ],
+  })
+  await prisma.station.createMany({
+    data: [
+      { id: 'stn-shibuya', name: '渋谷', kana: 'しぶや' },
+      { id: 'stn-kanda', name: '神田', kana: 'かんだ' },
+      { id: 'bus-shibuya-ekimae', name: '都営バス 渋谷駅前', kana: 'しぶやえきまえ' },
+    ],
+  })
+  await prisma.stationLine.createMany({
+    data: [
+      { stationId: 'stn-shibuya', lineId: 'jr-yamanote' },
+      { stationId: 'stn-shibuya', lineId: 'metro-ginza' },
+      { stationId: 'stn-kanda', lineId: 'jr-yamanote' },
+      { stationId: 'stn-kanda', lineId: 'metro-ginza' },
+      { stationId: 'bus-shibuya-ekimae', lineId: 'toei-bus-01' },
+    ],
+  })
+}
+
 beforeEach(async () => {
-  // ユーザ系のみリセット (User 削除で Session/Account/Route/RouteSegment が CASCADE)。
-  // マスタ系 (Line/Station/StationLine) は global-setup の seed を保持する。
+  // User 削除で Session/Account/Route/RouteSegment が CASCADE。
+  // マスタ (Line/Station/StationLine) は seed を空に倒したため毎回ゼロから作り直す。
+  // RouteSegment.lineId は onDelete: SetNull なので Route 側を先に消した後で Line を消す。
   await prisma.user.deleteMany()
   await prisma.verification.deleteMany()
+  await prisma.stationLine.deleteMany()
+  await prisma.station.deleteMany()
+  await prisma.line.deleteMany()
 })
 
 afterAll(async () => {
@@ -174,6 +209,7 @@ describe('POST /api/routes (US-003 経路登録)', () => {
   })
 
   it('正常 1 区間で 201, fromStation/toStation が segments 端点と一致 (派生算出)', async () => {
+    await setupMasterFixture()
     const cookie = await signUpAndGetCookie('user5@example.com', 'Test1234')
     const res = await postRoutes(cookie, {
       name: '平日通勤',
@@ -205,6 +241,7 @@ describe('POST /api/routes (US-003 経路登録)', () => {
   })
 
   it('複数区間で fromStation = 1区間目出発、toStation = 最終区間到着 (orderIndex 採番も)', async () => {
+    await setupMasterFixture()
     const cookie = await signUpAndGetCookie('user6@example.com', 'Test1234')
     const res = await postRoutes(cookie, {
       segments: [
@@ -409,6 +446,7 @@ describe('GET /api/routes (US-004 経路一覧)', () => {
   })
 
   it('各経路に segments が orderIndex 昇順で同梱される', async () => {
+    await setupMasterFixture()
     const cookie = await signUpAndGetCookie('list3@example.com', 'Test1234')
     await postRoutes(cookie, {
       name: 'multi',
@@ -651,6 +689,7 @@ describe('PUT /api/routes/:id (US-006 経路編集)', () => {
   })
 
   it('正しい updatedAt で 200 で更新でき、segments も置換される (orderIndex 採番再)', async () => {
+    await setupMasterFixture()
     const cookie = await signUpAndGetCookie('edit5@example.com', 'Test1234')
     const id = await createOneRoute(cookie, 'before')
     const before = await prisma.route.findUnique({
@@ -735,6 +774,12 @@ describe('PUT /api/routes/:id (US-006 経路編集)', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/stations (駅マスタ参照)', () => {
+  // この describe 配下の検索系テストはマスタが存在することを前提とする。
+  // beforeEach 後にマスタを再構築する。
+  beforeEach(async () => {
+    await setupMasterFixture()
+  })
+
   it('未認証では 401', async () => {
     const res = await getStations(null, 'q=渋')
     expect(res.status).toBe(401)

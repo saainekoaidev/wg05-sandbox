@@ -103,7 +103,10 @@ test.describe('US-003 経路登録フロー', () => {
     await expect(page).toHaveURL('/routes/new')
   })
 
-  test('駅選択ボタンでポップアップが開き、選択した駅名が親フォームに反映される', async ({
+  // 路線/駅マスタは 2026-05-03 に空にしたため、駅選択 popup の検索結果に依存するこのテストは
+  // 一時的に skip する。US-011 (東海4県マスタ取り込み) 完了後に渋谷→名古屋など現マスタに合わせ
+  // 再有効化する。docs/requirements.md US-011, docs/adr/0005-master-data-source.md 参照。
+  test.fixme('駅選択ボタンでポップアップが開き、選択した駅名が親フォームに反映される', async ({
     page,
     context,
   }) => {
