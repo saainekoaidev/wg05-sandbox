@@ -614,16 +614,22 @@ export function Account() {
           <div className="divider">
             <span>Admin</span>
           </div>
-          <div className="hint" style={{ marginBottom: 12 }}>
-            管理者として以下のマスタ管理画面にアクセスできます。
-          </div>
-          <div className="actions">
-            <Link to="/admin/lines" className="btn btn-secondary">
-              路線マスタ管理
-            </Link>
-            <Link to="/admin/stations" className="btn btn-secondary">
-              駅マスタ管理
-            </Link>
+          {/* US-024: hint を .group でラップして他セクションの説明文と同じインデントに揃える */}
+          <div className="group">
+            <div className="hint">
+              管理者として以下のマスタ管理画面にアクセスできます。
+            </div>
+            <div
+              className="actions actions--no-divider"
+              style={{ marginTop: 12 }}
+            >
+              <Link to="/admin/lines" className="btn btn-secondary btn-sm">
+                路線マスタ管理
+              </Link>
+              <Link to="/admin/stations" className="btn btn-secondary btn-sm">
+                駅マスタ管理
+              </Link>
+            </div>
           </div>
         </>
       )}

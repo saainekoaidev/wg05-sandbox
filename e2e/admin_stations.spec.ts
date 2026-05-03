@@ -59,17 +59,18 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
   test('管理者: 路線→駅の作成・編集・削除フル往復', async ({ page }) => {
     await loginViaUi(page, ADMIN_EMAIL)
 
-    // 1. 先に路線を作成 (チェックボックスに乗せるため)
+    // 1. 先に路線を作成 (US-025: Link で /admin/lines/new)
     await page.goto('/admin/lines')
     const lineId = `e2e-line-st-${RUN_TAG}`
     const lineName = `E2EST路線-${RUN_TAG}`
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
     await page.getByLabel(/^ID/).fill(lineId)
     await page.getByLabel(/^路線名/).fill(lineName)
     await page.getByRole('button', { name: '作成する' }).click()
+    await expect(page).toHaveURL('/admin/lines')
     await expect(page.getByText('路線を作成しました')).toBeVisible()
 
-    // 2. 駅マスタ画面で新規駅を作成 (上記路線にチェック)
+    // 2. 駅マスタ画面で新規駅を作成 (US-026: Link で /admin/stations/new)
     await page.goto('/admin/stations')
     await expect(
       page.getByRole('heading', { name: '駅マスタ管理' }),
@@ -81,7 +82,8 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
     const initialKana = 'いいきえき'
     const updatedKana = 'いいきえきうぴ'
 
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
+    await expect(page).toHaveURL('/admin/stations/new')
     await page.getByLabel(/^ID$/).fill(stationId)
     await page.getByLabel(/^駅名/).fill(initialName)
     await page.getByLabel(/よみがな/).fill(initialKana)
@@ -90,14 +92,16 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
     await lineCheckbox.check()
     await page.getByRole('button', { name: '作成する' }).click()
 
+    await expect(page).toHaveURL('/admin/stations')
     await expect(page.getByText('駅を作成しました')).toBeVisible()
     await expect(page.getByText(initialName)).toBeVisible()
     // 行に路線タグ
     const row = page.locator('table tbody tr', { hasText: initialName })
     await expect(row.getByText(lineName)).toBeVisible()
 
-    // 3. 編集 — 駅名 + よみがな更新, 路線チェックを外す
-    await page.getByRole('button', { name: `駅「${initialName}」を編集` }).click()
+    // 3. 編集 — Link で /admin/stations/:id/edit
+    await page.getByRole('link', { name: `駅「${initialName}」を編集` }).click()
+    await expect(page).toHaveURL(`/admin/stations/${stationId}/edit`)
     await expect(page.getByLabel('ID')).toBeDisabled()
     // 注意書き
     await expect(
@@ -108,6 +112,7 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
     await page.getByLabel(/よみがな/).fill(updatedKana)
     await page.getByRole('checkbox', { name: new RegExp(lineName) }).uncheck()
     await page.getByRole('button', { name: '更新する' }).click()
+    await expect(page).toHaveURL('/admin/stations')
     await expect(page.getByText('駅を更新しました')).toBeVisible()
     await expect(page.getByText(updatedName)).toBeVisible()
     await expect(page.getByText(initialName)).toHaveCount(0)
@@ -142,7 +147,7 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
 
     const name = `E2EAuto駅-${RUN_TAG}`
     const kana = `いいきあうとえき${RUN_TAG.slice(0, 4)}`
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
     // ID は空のまま
     await page.getByLabel(/^駅名/).fill(name)
     await page.getByLabel(/よみがな/).fill(kana)
@@ -164,7 +169,7 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
   test('駅名空欄ではフィールドエラーが出て送信されない', async ({ page }) => {
     await loginViaUi(page, ADMIN_EMAIL)
     await page.goto('/admin/stations')
-    await page.getByRole('button', { name: '+ 新規作成' }).first().click()
+    await page.getByRole('link', { name: '+ 新規作成' }).first().click()
     await page.getByLabel(/よみがな/).fill('えき')
     await page.getByRole('button', { name: '作成する' }).click()
     await expect(page.getByText('駅名を入力してください')).toBeVisible()
