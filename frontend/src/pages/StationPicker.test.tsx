@@ -54,9 +54,48 @@ const SAMPLE_RESPONSE = {
       id: 'stn-shibuya',
       name: '渋谷',
       kana: 'しぶや',
+      code: 'JY20',
       lines: [
         { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
         { id: 'metro-fukutoshin', name: '東京メトロ副都心線', kind: 'subway', operator: '東京メトロ' },
+      ],
+    },
+  ],
+}
+
+// US-030: ソートテスト用に複数駅を返すレスポンス
+// API の order 既定 (name asc) で渋谷 → 新宿 → 池袋 の順とする。
+//  - kind: 渋谷=train+subway, 新宿=train, 池袋=subway
+//  - kana: しぶや / しんじゅく / いけぶくろ
+//  - code: JY20 / JY17 / "" (池袋は空)
+const SORT_SAMPLE = {
+  stations: [
+    {
+      id: 'stn-shibuya',
+      name: '渋谷',
+      kana: 'しぶや',
+      code: 'JY20',
+      lines: [
+        { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
+        { id: 'metro-fukutoshin', name: '東京メトロ副都心線', kind: 'subway', operator: '東京メトロ' },
+      ],
+    },
+    {
+      id: 'stn-shinjuku',
+      name: '新宿',
+      kana: 'しんじゅく',
+      code: 'JY17',
+      lines: [
+        { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
+      ],
+    },
+    {
+      id: 'stn-ikebukuro',
+      name: '池袋',
+      kana: 'いけぶくろ',
+      code: '',
+      lines: [
+        { id: 'metro-marunouchi', name: '東京メトロ丸ノ内線', kind: 'subway', operator: '東京メトロ' },
       ],
     },
   ],
@@ -397,6 +436,91 @@ describe('StationPicker', () => {
       )
       // 不正 kind のみだと有効条件が無いので自動検索しない
       expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('US-030 種別 / よみがな / 駅番号 ソート', () => {
+    async function renderWithSortSample() {
+      const user = userEvent.setup()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(SORT_SAMPLE), { status: 200 }),
+      )
+      renderPicker()
+      await user.type(screen.getByLabelText('駅名 / よみがな'), 'a')
+      await user.click(screen.getByRole('button', { name: '検索' }))
+      await screen.findByText('渋谷')
+      return user
+    }
+
+    function getRowOrder(): string[] {
+      // tbody の各行の駅名セル (3 列目: # / 種別 / 駅名) を抽出
+      const rows = Array.from(document.querySelectorAll('tbody tr'))
+      return rows.map((tr) => {
+        const cells = tr.querySelectorAll('td')
+        return (cells[2]?.textContent ?? '').trim()
+      })
+    }
+
+    it('駅番号列 (code) が表示される。空文字の駅は em-dash 表示', async () => {
+      await renderWithSortSample()
+      // テーブルヘッダに「駅番号」が出ている
+      expect(
+        screen.getByRole('columnheader', { name: /駅番号/ }),
+      ).toBeInTheDocument()
+      // 渋谷の code セルに JY20 が表示
+      expect(screen.getByText('JY20')).toBeInTheDocument()
+      expect(screen.getByText('JY17')).toBeInTheDocument()
+    })
+
+    it('「よみがな」列をクリックすると昇順ソートする', async () => {
+      const user = await renderWithSortSample()
+      await user.click(
+        screen.getByRole('columnheader', { name: /よみがな/ }),
+      )
+      // いけぶくろ < しぶや < しんじゅく
+      expect(getRowOrder()).toEqual(['池袋', '渋谷', '新宿'])
+    })
+
+    it('「よみがな」列を再度クリックすると降順ソートする', async () => {
+      const user = await renderWithSortSample()
+      const header = screen.getByRole('columnheader', { name: /よみがな/ })
+      await user.click(header) // asc
+      await user.click(header) // desc
+      expect(getRowOrder()).toEqual(['新宿', '渋谷', '池袋'])
+    })
+
+    it('「駅番号」列ソート時、空 code の駅は昇順でも末尾に並ぶ', async () => {
+      const user = await renderWithSortSample()
+      await user.click(screen.getByRole('columnheader', { name: /駅番号/ }))
+      // JY17 < JY20 < (空文字=末尾)
+      expect(getRowOrder()).toEqual(['新宿', '渋谷', '池袋'])
+    })
+
+    it('「駅番号」列を降順にしても空 code の駅は末尾に並ぶ', async () => {
+      const user = await renderWithSortSample()
+      const header = screen.getByRole('columnheader', { name: /駅番号/ })
+      await user.click(header)
+      await user.click(header) // desc
+      // JY20 > JY17 > (空文字=末尾固定)
+      expect(getRowOrder()).toEqual(['渋谷', '新宿', '池袋'])
+    })
+
+    it('「種別」列ソートで電車を先頭に並べる (train < subway 優先順)', async () => {
+      const user = await renderWithSortSample()
+      await user.click(screen.getByRole('columnheader', { name: /種別/ }))
+      // 渋谷 (train+subway → train) / 新宿 (train) / 池袋 (subway)
+      // 渋谷と新宿はどちらも train priority=0 → 配列内の元の順序 (渋谷→新宿) を保つ
+      expect(getRowOrder()).toEqual(['渋谷', '新宿', '池袋'])
+    })
+
+    it('aria-sort 属性が active 列で ascending / descending に切り替わる', async () => {
+      const user = await renderWithSortSample()
+      const kanaHeader = screen.getByRole('columnheader', { name: /よみがな/ })
+      expect(kanaHeader.getAttribute('aria-sort')).toBe('none')
+      await user.click(kanaHeader)
+      expect(kanaHeader.getAttribute('aria-sort')).toBe('ascending')
+      await user.click(kanaHeader)
+      expect(kanaHeader.getAttribute('aria-sort')).toBe('descending')
     })
   })
 })

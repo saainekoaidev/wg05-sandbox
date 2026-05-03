@@ -371,6 +371,8 @@ app.get('/api/stations', async (c) => {
       id: s.id,
       name: s.name,
       kana: s.kana,
+      // US-030: 駅番号 (例: "CA68"). 手動作成 / 番号未設定駅は空文字。
+      code: s.code,
       lines: s.lineLinks.map((ll) => ({
         id: ll.line.id,
         name: ll.line.name,

@@ -120,6 +120,9 @@ model Station {
   id         String        @id @default(cuid())
   name       String
   kana       String
+  /// 駅番号 (Wikidata P296)。複数路線の番号がある駅は "/" 区切りで連結 (例: "CA68/CC00")。
+  /// US-030 で追加。手動作成 / 番号未設定駅では空文字。
+  code       String        @default("")
   /// 取り込み元 URI。手動作成は NULL。docs/adr/0007-tokai-import-spec.md §5。
   sourceUri  String?
   /// 取り込み実行時刻。手動作成は NULL。

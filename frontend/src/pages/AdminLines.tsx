@@ -320,9 +320,9 @@ export function AdminLines() {
         )}
       </div>
 
-      <div className="foot foot--split">
+      {/* US-029: 「経路一覧へ」リンクは動線重複のため削除 (アカウント設定経由で戻れる) */}
+      <div className="foot">
         <Link to="/account">アカウント設定</Link>
-        <Link to="/routes">経路一覧へ</Link>
       </div>
     </div>
   )
