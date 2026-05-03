@@ -158,6 +158,10 @@ body {
 }
 form { padding: 36px 40px 32px; }
 
+/* US-024 改修: form の外に置く section (Account の Admin / 一覧戻る等) を
+   form と同じ水平パディングに揃えるための共通ユーティリティ。 */
+.shell-section { padding: 0 40px; }
+
 .group { margin-bottom: 22px; }
 .group label {
   display: block;

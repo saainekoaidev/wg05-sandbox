@@ -614,14 +614,15 @@ export function Account() {
           <div className="divider">
             <span>Admin</span>
           </div>
-          {/* US-024: hint を .group でラップして他セクションの説明文と同じインデントに揃える */}
-          <div className="group">
-            <div className="hint">
+          {/* US-024 改修: shell-section で form と同じ水平パディングに揃える + hint と
+              ボタン群を中央寄せにして他セクションと統一感を出す。 */}
+          <div className="shell-section">
+            <div className="hint" style={{ marginBottom: 12 }}>
               管理者として以下のマスタ管理画面にアクセスできます。
             </div>
             <div
               className="actions actions--no-divider"
-              style={{ marginTop: 12 }}
+              style={{ justifyContent: 'center', gap: 16 }}
             >
               <Link to="/admin/lines" className="btn btn-secondary btn-sm">
                 路線マスタ管理
@@ -634,10 +635,12 @@ export function Account() {
         </>
       )}
 
-      <div className="actions actions--no-divider" style={{ marginTop: 24 }}>
-        <Link to="/routes" className="btn btn-ghost">
-          経路一覧に戻る
-        </Link>
+      <div className="shell-section" style={{ paddingTop: 24, paddingBottom: 32 }}>
+        <div className="actions actions--no-divider">
+          <Link to="/routes" className="btn btn-ghost">
+            経路一覧に戻る
+          </Link>
+        </div>
       </div>
     </div>
   )
