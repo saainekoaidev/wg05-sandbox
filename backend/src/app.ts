@@ -245,6 +245,71 @@ app.put('/api/routes/:id', async (c) => {
 })
 
 // =====================================================================
+// プロフィール (US-008, ADR 0004)
+// =====================================================================
+
+const ProfileInput = z.object({
+  // 表示名: 1〜50 文字 (User.name は NOT NULL)。空白のみは弾く。
+  name: z
+    .string()
+    .min(1)
+    .max(50)
+    .refine((v) => v.trim().length > 0, { message: 'blank' }),
+  // 郵便番号: 任意。指定するなら 7 桁数字 (ハイフン無し) のみ。
+  postalCode: z
+    .union([z.string().regex(/^\d{7}$/), z.literal(''), z.null()])
+    .optional(),
+})
+
+app.get('/api/users/me', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, email: true, name: true, postalCode: true },
+  })
+  if (!user) return c.json({ error: 'not_found' }, 404)
+  return c.json(user)
+})
+
+app.put('/api/users/me', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+
+  const parsed = ProfileInput.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+
+  // 空文字 / null / undefined は同じ扱い (= postalCode を NULL に倒す)
+  const postalCode = parsed.data.postalCode
+    ? parsed.data.postalCode
+    : null
+
+  const updated = await prisma.user.update({
+    where: { id: session.user.id },
+    data: {
+      name: parsed.data.name.trim(),
+      postalCode,
+      updatedAt: new Date(),
+    },
+    select: { id: true, email: true, name: true, postalCode: true },
+  })
+
+  return c.json(updated)
+})
+
+// =====================================================================
 // 駅マスタ参照 (US-003 / US-006 サポート, screen_design_station_master.md)
 // =====================================================================
 

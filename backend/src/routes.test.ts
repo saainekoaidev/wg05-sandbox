@@ -862,3 +862,132 @@ describe('GET /api/stations (駅マスタ参照)', () => {
     expect((await res.json()).error).toBe('invalid_kind')
   })
 })
+
+// ---------------------------------------------------------------------------
+// GET / PUT /api/users/me (US-008 プロフィール)
+// ---------------------------------------------------------------------------
+
+async function getMe(cookie: string | null): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/users/me', { method: 'GET', headers }),
+  )
+}
+
+async function putMe(cookie: string | null, body: unknown): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/users/me', {
+      method: 'PUT',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  )
+}
+
+describe('GET /api/users/me (US-008 プロフィール参照)', () => {
+  it('未認証では 401', async () => {
+    const res = await getMe(null)
+    expect(res.status).toBe(401)
+  })
+
+  it('認証済みなら id/email/name/postalCode を返す (postalCode は新規ユーザでは null)', async () => {
+    const cookie = await signUpAndGetCookie('me1@example.com', 'Test1234', 'Me One')
+    const res = await getMe(cookie)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      email: 'me1@example.com',
+      name: 'Me One',
+      postalCode: null,
+    })
+    expect(body.id).toBeTruthy()
+  })
+})
+
+describe('PUT /api/users/me (US-008 プロフィール更新)', () => {
+  it('未認証では 401', async () => {
+    const res = await putMe(null, { name: 'X' })
+    expect(res.status).toBe(401)
+  })
+
+  it('JSON 不正なら 400 (invalid_json)', async () => {
+    const cookie = await signUpAndGetCookie('me2@example.com', 'Test1234')
+    const res = await putMe(cookie, 'not-json')
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('invalid_json')
+  })
+
+  it('name 空白のみは 400', async () => {
+    const cookie = await signUpAndGetCookie('me3@example.com', 'Test1234')
+    const res = await putMe(cookie, { name: '   ' })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('validation_failed')
+  })
+
+  it('name 51文字は 400', async () => {
+    const cookie = await signUpAndGetCookie('me4@example.com', 'Test1234')
+    const res = await putMe(cookie, { name: 'あ'.repeat(51) })
+    expect(res.status).toBe(400)
+  })
+
+  it('postalCode に 6桁数字を送ると 400', async () => {
+    const cookie = await signUpAndGetCookie('me5@example.com', 'Test1234')
+    const res = await putMe(cookie, { name: 'X', postalCode: '123456' })
+    expect(res.status).toBe(400)
+  })
+
+  it('postalCode に英数字混在を送ると 400', async () => {
+    const cookie = await signUpAndGetCookie('me6@example.com', 'Test1234')
+    const res = await putMe(cookie, { name: 'X', postalCode: '123abcd' })
+    expect(res.status).toBe(400)
+  })
+
+  it('正常: name のみで更新できる (postalCode は明示しなくても保たれる…ではなく null になる)', async () => {
+    const cookie = await signUpAndGetCookie('me7@example.com', 'Test1234', 'Old Name')
+    const res = await putMe(cookie, { name: 'New Name' })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ name: 'New Name', postalCode: null })
+  })
+
+  it('正常: postalCode 7桁数字を保存し、再取得で同じ値が読める', async () => {
+    const cookie = await signUpAndGetCookie('me8@example.com', 'Test1234', 'A')
+    const res = await putMe(cookie, { name: 'A', postalCode: '1500001' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).postalCode).toBe('1500001')
+    const get = await getMe(cookie)
+    expect((await get.json()).postalCode).toBe('1500001')
+  })
+
+  it('正常: postalCode 空文字を送ると null として保存される', async () => {
+    const cookie = await signUpAndGetCookie('me9@example.com', 'Test1234', 'A')
+    // 一度値を入れる
+    await putMe(cookie, { name: 'A', postalCode: '1500001' })
+    // 空文字でクリア
+    const res = await putMe(cookie, { name: 'A', postalCode: '' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).postalCode).toBe(null)
+  })
+
+  it('name 前後の空白は trim されて保存される', async () => {
+    const cookie = await signUpAndGetCookie('me10@example.com', 'Test1234', 'A')
+    const res = await putMe(cookie, { name: '  Bob  ' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).name).toBe('Bob')
+  })
+
+  it('email は更新対象外 (送っても無視され値は変わらない)', async () => {
+    const cookie = await signUpAndGetCookie('me11@example.com', 'Test1234', 'A')
+    const res = await putMe(cookie, {
+      name: 'A',
+      // email を勝手に書き換えようとする
+      email: 'attacker@example.com',
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.email).toBe('me11@example.com')
+  })
+})
