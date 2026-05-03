@@ -106,7 +106,7 @@ const ROUTE_B = {
 
 beforeEach(() => {
   mockUseSession.mockReturnValue({
-    data: { user: { id: 'u1', email: 'me@example.com' } },
+    data: { user: { id: 'u1', email: 'me@example.com', name: '山田 太郎' } },
     isPending: false,
   })
   fetchMock.mockReset()
@@ -139,12 +139,26 @@ describe('RouteList', () => {
     renderRouteList()
 
     expect(screen.getByText('読み込み中…')).toBeInTheDocument()
-    expect(screen.getByText('ユーザー: me@example.com')).toBeInTheDocument()
+    expect(screen.getByText('ユーザー: 山田 太郎')).toBeInTheDocument()
 
     resolve(new Response(JSON.stringify({ routes: [] }), { status: 200 }))
     await waitFor(() => {
       expect(screen.queryByText('読み込み中…')).not.toBeInTheDocument()
     })
+  })
+
+  it('name が空文字の場合は email にフォールバックして表示する', async () => {
+    mockUseSession.mockReturnValue({
+      data: { user: { id: 'u1', email: 'fallback@example.com', name: '' } },
+      isPending: false,
+    })
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ routes: [] }), { status: 200 }),
+    )
+    renderRouteList()
+    expect(
+      await screen.findByText('ユーザー: fallback@example.com'),
+    ).toBeInTheDocument()
   })
 
   it('0件時に空状態メッセージと新規登録誘導が表示される', async () => {
