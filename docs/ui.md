@@ -185,7 +185,7 @@
 
 - `Route`: `id` / `userId` / `name?` / `fromStation`(派生) / `toStation`(派生) / `segments[]` / `createdAt` / `updatedAt`
 - `Segment`: `id` / `routeId` / `orderIndex` / **`kind` (`"train"` \| `"subway"` \| `"bus"` \| `"other"`)** / **`lineName?`** / `fromStation` / `toStation` / `fare`
-- `Station` (マスタ): `id` / `kind` / `name` / `kana` / `lines[]`
+- `Station` (マスタ): `id` / `kind` / `name` / `kana` / `lines[]` (各 line に `code` = 駅番号を持つ, [ADR 0008](adr/0008-station-code-per-line.md))
 - **派生フィールド**: `Route.fromStation` = `segments[0].fromStation`、`Route.toStation` = `segments[N-1].toStation` をサーバ保存時に算出。経路登録/編集画面では入力項目として表示せず、サマリバーで自動表示する
 - 一覧表示の合計運賃は `segments[].fare` の合計をクライアント側で算出（将来 Prisma 集約クエリへ移行検討）
 - 一覧画面の「種別 / 路線」セルは `segments[].kind` のユニーク集合（タグ表示）と `segments[].lineName` のユニーク集合（`/` 区切りテキスト）から派生
