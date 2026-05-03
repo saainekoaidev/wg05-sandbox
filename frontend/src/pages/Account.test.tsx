@@ -35,6 +35,7 @@ const ME = {
   email: 'me@example.com',
   name: '山田 太郎',
   postalCode: null as string | null,
+  role: 'user' as 'user' | 'admin',
 }
 
 beforeEach(() => {
@@ -497,6 +498,29 @@ describe('Account', () => {
       expect(next.type).toBe('password')
       await user.click(screen.getByRole('button', { name: '表示' }))
       expect(next.type).toBe('text')
+    })
+  })
+
+  describe('管理者リンク (US-012)', () => {
+    it('role=user では Admin セクションは描画されない', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...ME, role: 'user' }), { status: 200 }),
+      )
+      renderAccount()
+      await screen.findByDisplayValue('山田 太郎')
+      expect(
+        screen.queryByRole('link', { name: '路線マスタ管理' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('role=admin では「路線マスタ管理」リンクが /admin/lines を指して描画される', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...ME, role: 'admin' }), { status: 200 }),
+      )
+      renderAccount()
+      await screen.findByDisplayValue('山田 太郎')
+      const link = screen.getByRole('link', { name: '路線マスタ管理' })
+      expect(link).toHaveAttribute('href', '/admin/lines')
     })
   })
 

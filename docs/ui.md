@@ -16,6 +16,7 @@
 | S06 | 経路編集 | `/routes/:id/edit` | 認証必須（オーナー） | [経路編集](ui-screens/screen_design_route_edit.md) | [route_edit.html](ui-images/route_edit.html) |
 | S07 | 駅マスタ参照 | `/stations`（モーダル併用） | 認証必須 | [駅マスタ参照](ui-screens/screen_design_station_master.md) | [station_master.html](ui-images/station_master.html) |
 | S08 | プロフィール設定 | `/account` | 認証必須 | [プロフィール設定](ui-screens/screen_design_account.md) | (画面イメージ未作成) |
+| S09 | 路線マスタ管理 | `/admin/lines` | 認証必須 + role=admin | [路線マスタ管理](ui-screens/screen_design_admin_lines.md) | (画面イメージ未作成) |
 
 ---
 
@@ -31,6 +32,9 @@
 | US-006 | 経路編集 | S06 経路編集 | S07 駅マスタ参照 |
 | US-007 | 経路削除 | S05 経路詳細（削除ボタン） | S03 経路一覧（削除ボタン） |
 | US-008 | プロフィール (氏名/郵便番号) 変更 | S08 プロフィール設定 | S03 経路一覧（フッタ動線） |
+| US-009 | パスワード変更 | S08 プロフィール設定 (パスワードセクション) | - |
+| US-010 | アカウント削除 | S08 プロフィール設定 (削除セクション) | - |
+| US-012 | 路線マスタ管理 (admin) | S09 路線マスタ管理 | S08 プロフィール設定 (admin リンク) |
 
 ---
 
@@ -58,7 +62,8 @@
    │   └→ 削除 (一覧 / 詳細から)  → 確認 → 一覧へ
    │
    │   ├→ S08 プロフィール設定 (一覧フッタの「ユーザー: ...」リンク)
-   │   │     └→ 一覧へ戻る
+   │   │     ├→ 一覧へ戻る
+   │   │     └→ S09 路線マスタ管理 (admin のみ)
    │
    └────────────── ログアウト → S02 ─┘
 ```

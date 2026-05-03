@@ -16,6 +16,9 @@ model User {
   image         String?
   /// 郵便番号 (任意, 7桁数字, ハイフン無しで保存)。docs/adr/0004-user-maintenance.md §(a) 参照。
   postalCode    String?
+  /// "user" or "admin"。マスタ管理画面 (US-012/013) の認可で参照。
+  /// docs/adr/0006-master-admin.md §1 参照。
+  role          String    @default("user")
   createdAt     DateTime
   updatedAt     DateTime
   sessions      Session[]
