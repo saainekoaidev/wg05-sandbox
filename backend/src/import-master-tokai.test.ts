@@ -310,6 +310,61 @@ describe('fetchStationsForLines', () => {
     const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
     expect(stations[0]!.kana).toBe('かなやま')
   })
+
+  it('US-030: stationCode が無い駅は code が空文字', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NOCODE' },
+        stationLabel: { value: '駅A' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
+    expect(stations[0]!.code).toBe('')
+  })
+
+  it('US-030: stationCode が単数なら code にそのまま入る', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-CA68' },
+        stationLabel: { value: '名古屋駅' },
+        stationCode: { value: 'CA68' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
+    expect(stations[0]!.code).toBe('CA68')
+  })
+
+  it('US-030: 同じ駅の stationCode が複数行で返る場合 "/" 連結 (sort 安定)', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
+        stationLabel: { value: '名古屋駅' },
+        stationCode: { value: 'CC00' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
+        stationLabel: { value: '名古屋駅' },
+        stationCode: { value: 'CA68' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
+        stationLabel: { value: '名古屋駅' },
+        // 重複した CA68 (P81 別行で同じ code が出るパターン) は重複排除される
+        stationCode: { value: 'CA68' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    expect(stations).toHaveLength(1)
+    expect(stations[0]!.code).toBe('CA68/CC00')
+  })
 })
 
 describe('upsertLines', () => {
@@ -377,6 +432,7 @@ describe('upsertStationsAndLinks', () => {
         id: 'Q-S',
         name: 'テスト駅',
         kana: 'てすと',
+        code: '',
         sourceUri: 'https://example/Q-S',
         // 取り込み対象 Q-IMP と 手動 manual-line の両方に紐付け
         lineIds: ['Q-IMP', 'manual-line'],
@@ -401,6 +457,7 @@ describe('upsertStationsAndLinks', () => {
         id: 'Q-S',
         name: 's',
         kana: 's',
+        code: '',
         sourceUri: 'https://x/S',
         lineIds: ['Q-A'],
       },
@@ -417,6 +474,7 @@ describe('upsertStationsAndLinks', () => {
         id: 'Q-S',
         name: 's',
         kana: 's',
+        code: '',
         sourceUri: 'https://x/S',
         lineIds: ['Q-B'],
       },
@@ -426,6 +484,39 @@ describe('upsertStationsAndLinks', () => {
         (l) => l.lineId,
       ),
     ).toEqual(['Q-B'])
+  })
+
+  it('US-030: code が DB に保存される (新規/更新の両方)', async () => {
+    await upsertLines([
+      { id: 'Q-L', name: 'L', kind: 'train', operator: 'X', sourceUri: 'https://x/L' },
+    ])
+    // 新規時: code='CA68'
+    await upsertStationsAndLinks([
+      {
+        id: 'Q-NAG',
+        name: '名古屋',
+        kana: 'なごや',
+        code: 'CA68',
+        sourceUri: 'https://x/NAG',
+        lineIds: ['Q-L'],
+      },
+    ])
+    let s = await prisma.station.findUnique({ where: { id: 'Q-NAG' } })
+    expect(s?.code).toBe('CA68')
+
+    // 更新時: code='CA68/CC00' に変更
+    await upsertStationsAndLinks([
+      {
+        id: 'Q-NAG',
+        name: '名古屋',
+        kana: 'なごや',
+        code: 'CA68/CC00',
+        sourceUri: 'https://x/NAG',
+        lineIds: ['Q-L'],
+      },
+    ])
+    s = await prisma.station.findUnique({ where: { id: 'Q-NAG' } })
+    expect(s?.code).toBe('CA68/CC00')
   })
 })
 
@@ -458,6 +549,7 @@ describe('cleanImported', () => {
         id: 'Q-S',
         name: 's',
         kana: 's',
+        code: '',
         sourceUri: 'https://x/S',
         lineIds: ['Q-IMP'],
       },

@@ -306,6 +306,8 @@ type FetchedStation = {
   id: string
   name: string
   kana: string
+  /** US-030: 駅番号 (P296)。複数値は "/" 区切りで連結。 */
+  code: string
   sourceUri: string
   /** P81 で接続する Line.id のうち, 取り込み対象路線に含まれるもののみ */
   lineIds: string[]
@@ -319,8 +321,10 @@ export async function fetchStationsForLines(
   const lineVals = lineIds.map((q) => `wd:${q}`).join(' ')
   const prefVals = PREF_QIDS.map((q) => `wd:${q}`).join(' ')
   // 駅情報は重複しがち (P81 が複数あり, 4県内駅で複数県マッチ等)。SELECT 後にアプリ層で集約する。
+  // US-030: P296 (station code, 駅番号) も OPTIONAL で取得。1 駅で複数番号を持つ場合 (例: 名古屋
+  // 駅は CA68/CC00/CF00 等) 複数行で返ってくるためアプリ側で一意集約する。
   const query = `
-SELECT DISTINCT ?station ?stationLabel ?stationKana ?line WHERE {
+SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?line WHERE {
   VALUES ?targetLine { ${lineVals} }
   VALUES ?pref { ${prefVals} }
   ?station wdt:P81 ?targetLine ;
@@ -328,12 +332,15 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?line WHERE {
            wdt:P131* ?pref ;
            wdt:P81 ?line .
   OPTIONAL { ?station wdt:P1814 ?stationKana }
+  OPTIONAL { ?station wdt:P296  ?stationCode }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "ja,en". }
 }
 `
   const rows = await fetcher(query)
   const targetSet = new Set(lineIds)
   const byStation = new Map<string, FetchedStation>()
+  // US-030: 駅 -> code 集合 (重複排除のため Set)。後段で "/" 結合する。
+  const codesByStation = new Map<string, Set<string>>()
   for (const r of rows) {
     const stationQid = qidFromUri(r.station!.value)
     const lineQid = qidFromUri(r.line!.value)
@@ -341,22 +348,33 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?line WHERE {
     if (!entry) {
       const rawName = r.stationLabel?.value ?? stationQid
       const normalized = normalizeStationName(rawName)
-      // US-023: Wikidata の P1814 (kana) が無い場合は kana を空文字にする (US-027 で後段補完)。
-      // US-027: Wikidata の kana が「〜えき」で終わるケース (例: 金山駅 → かなやまえき) は
-      // 末尾「えき」を除去する。
+      // US-023 / US-027: kana 取り扱いは継続
       const kana = stripEkiSuffix(r.stationKana?.value ?? '')
       entry = {
         id: stationQid,
         name: normalized,
         kana,
+        code: '',
         sourceUri: `https://www.wikidata.org/wiki/${stationQid}`,
         lineIds: [],
       }
       byStation.set(stationQid, entry)
+      codesByStation.set(stationQid, new Set())
     }
     if (targetSet.has(lineQid) && !entry.lineIds.includes(lineQid)) {
       entry.lineIds.push(lineQid)
     }
+    // US-030: 駅番号集約
+    const codeVal = r.stationCode?.value
+    if (codeVal) {
+      codesByStation.get(stationQid)!.add(codeVal)
+    }
+  }
+  // 駅番号を "/" 区切りで結合 (順序は string sort で安定化)
+  for (const [qid, codes] of codesByStation) {
+    if (codes.size === 0) continue
+    const sorted = Array.from(codes).sort()
+    byStation.get(qid)!.code = sorted.join('/')
   }
   // ADR 0007 §3.5: 取り込み対象路線への接続のみ StationLine に含める
   // -> targetSet フィルタ済みの lineIds を返す
@@ -415,12 +433,14 @@ export async function upsertStationsAndLinks(
         id: s.id,
         name: s.name,
         kana: s.kana,
+        code: s.code,
         sourceUri: s.sourceUri,
         importedAt: now,
       },
       update: {
         name: s.name,
         kana: s.kana,
+        code: s.code,
         sourceUri: s.sourceUri,
         importedAt: now,
       },

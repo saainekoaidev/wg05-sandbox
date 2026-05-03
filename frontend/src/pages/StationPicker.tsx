@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
@@ -8,10 +8,24 @@ type ApiStation = {
   id: string
   name: string
   kana: string
+  /** US-030: 駅番号 (例: "CA68")。手動作成 / 番号未設定駅は空文字。 */
+  code: string
   lines: Array<{ id: string; name: string; kind: LineKind; operator: string | null }>
 }
 
 type ApiResponse = { stations: ApiStation[] }
+
+type SortColumn = 'kind' | 'kana' | 'code'
+type SortDir = 'asc' | 'desc'
+
+// US-030: 種別ソート時の優先順 (電車 < 地下鉄 < バス < その他)。
+// 駅が複数路線に接続する場合は priority が最小の kind を sort key にする。
+const KIND_ORDER: Record<LineKind, number> = {
+  train: 0,
+  subway: 1,
+  bus: 2,
+  other: 3,
+}
 
 const KIND_TAG_CLASS: Record<LineKind, string> = {
   train: 'tag tag-train',
@@ -54,6 +68,51 @@ export function StationPicker() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const linesState = useLines({ enabled: !!session })
+
+  // US-030: ソート状態。null の間は API の既定順 (name asc) を維持。
+  const [sortBy, setSortBy] = useState<SortColumn | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  function handleSort(col: SortColumn) {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(col)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedStations = useMemo<ApiStation[] | null>(() => {
+    if (!stations) return null
+    if (!sortBy) return stations
+    const arr = [...stations]
+    arr.sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'kind') {
+        const ka =
+          a.lines.length === 0
+            ? 99
+            : Math.min(...a.lines.map((l) => KIND_ORDER[l.kind]))
+        const kb =
+          b.lines.length === 0
+            ? 99
+            : Math.min(...b.lines.map((l) => KIND_ORDER[l.kind]))
+        cmp = ka - kb
+      } else if (sortBy === 'kana') {
+        cmp = a.kana.localeCompare(b.kana, 'ja')
+      } else {
+        // code: 空文字は常に末尾扱い (昇降ともに)
+        const ea = a.code === ''
+        const eb = b.code === ''
+        if (ea && !eb) return 1
+        if (!ea && eb) return -1
+        cmp = a.code.localeCompare(b.code, 'en')
+      }
+      if (cmp === 0) return 0
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return arr
+  }, [stations, sortBy, sortDir])
 
   // US-016 自動検索フラグ。初期 URL に条件があれば、認証確定後 1 度だけ自動実行する。
   const autoSearchedRef = useRef(false)
@@ -243,27 +302,46 @@ export function StationPicker() {
 
         {error && <div className="banner is-shown">{error}</div>}
 
-        {searched && stations && stations.length === 0 && !error && (
+        {searched && sortedStations && sortedStations.length === 0 && !error && (
           <div className="empty">
             該当する駅が見つかりませんでした。条件を変えてお試しください
           </div>
         )}
 
-        {stations && stations.length > 0 && (
+        {sortedStations && sortedStations.length > 0 && (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th className="col-num">#</th>
-                  <th>種別</th>
+                  <SortableTh
+                    label="種別"
+                    column="kind"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
                   <th>駅名 / 停留所</th>
-                  <th>よみがな</th>
+                  <SortableTh
+                    label="よみがな"
+                    column="kana"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <SortableTh
+                    label="駅番号"
+                    column="code"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
                   <th>主要路線</th>
                   <th className="col-actions">選択</th>
                 </tr>
               </thead>
               <tbody>
-                {stations.map((s, i) => {
+                {sortedStations.map((s, i) => {
                   // 接続する路線の種別ユニーク集合 (表示用タグ)
                   const kinds = Array.from(new Set(s.lines.map((l) => l.kind)))
                   return (
@@ -278,6 +356,7 @@ export function StationPicker() {
                       </td>
                       <td>{s.name}</td>
                       <td>{s.kana}</td>
+                      <td>{s.code === '' ? <span className="hint">—</span> : <code>{s.code}</code>}</td>
                       <td>{s.lines.map((l) => l.name).join(', ')}</td>
                       <td>
                         <div className="col-actions">
@@ -309,5 +388,52 @@ export function StationPicker() {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * US-030: ソート可能な <th>。クリックで該当列ソート ON / 同列を再度クリックで方向反転。
+ * ソート中の列は ▲ (asc) / ▼ (desc) を表示する。
+ */
+function SortableTh({
+  label,
+  column,
+  sortBy,
+  sortDir,
+  onSort,
+}: {
+  label: string
+  column: SortColumn
+  sortBy: SortColumn | null
+  sortDir: SortDir
+  onSort: (col: SortColumn) => void
+}) {
+  const active = sortBy === column
+  const indicator = active ? (sortDir === 'asc' ? '▲' : '▼') : ''
+  const ariaSort: 'ascending' | 'descending' | 'none' = active
+    ? sortDir === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none'
+  return (
+    <th
+      aria-sort={ariaSort}
+      onClick={() => onSort(column)}
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+      title={
+        active
+          ? sortDir === 'asc'
+            ? `${label} (昇順)。クリックで降順へ`
+            : `${label} (降順)。クリックで昇順へ`
+          : `${label} で並び替え`
+      }
+    >
+      {label}
+      {active && (
+        <span aria-hidden="true" style={{ marginLeft: 4 }}>
+          {indicator}
+        </span>
+      )}
+    </th>
   )
 }

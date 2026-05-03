@@ -387,7 +387,9 @@ tbody tr:hover { background: var(--blue-50); }
 .col-actions {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  /* US-028: 操作セルが狭くてもボタンを横並び維持。
+     セル幅は table の auto-layout で確保される。 */
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 .empty {
