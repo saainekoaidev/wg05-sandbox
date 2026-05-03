@@ -146,6 +146,14 @@ type FetchedLine = {
   sourceUri: string
 }
 
+/**
+ * US-018: JR 路線名に "JR" プレフィックスを付与する。
+ * 既に "JR" で始まる name は二重付与しない。
+ */
+export function ensureJRPrefix(name: string): string {
+  return name.startsWith('JR') ? name : `JR${name}`
+}
+
 /** ADR 0007 §3.1 JR ホワイトリスト 14 路線を取得。operator は JR東海 で固定。 */
 export async function fetchJRLines(
   fetcher: typeof fetchSparql = fetchSparql,
@@ -160,9 +168,11 @@ SELECT DISTINCT ?line ?lineLabel WHERE {
   const rows = await fetcher(query)
   return rows.map((r) => {
     const id = qidFromUri(r.line!.value)
+    const rawName = r.lineLabel?.value ?? id
     return {
       id,
-      name: r.lineLabel?.value ?? id,
+      // US-018: JR ホワイトリスト分は "JR" プレフィックスを付与
+      name: ensureJRPrefix(rawName),
       kind: 'train' as const,
       operator: 'JR東海',
       sourceUri: `https://www.wikidata.org/wiki/${id}`,
