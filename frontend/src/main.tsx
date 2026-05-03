@@ -7,6 +7,7 @@ import {
   Routes,
 } from 'react-router-dom'
 import { Account } from './pages/Account'
+import { AdminLines } from './pages/AdminLines'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
 import { RouteDetail } from './pages/RouteDetail'
@@ -29,6 +30,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/routes/:id/edit" element={<RouteEdit />} />
         <Route path="/stations" element={<StationPicker />} />
         <Route path="/account" element={<Account />} />
+        <Route path="/admin/lines" element={<AdminLines />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

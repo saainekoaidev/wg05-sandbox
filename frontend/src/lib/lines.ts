@@ -1,14 +1,14 @@
 /**
- * 路線セレクトの選択肢。
+ * 路線関連のクライアント層。
  *
- * 2026-05-03 時点でマスタは意図的に空。
- * 東海4県の路線データを取り込む US-011 までの間、各画面の路線セレクトは
- * 空 (選択肢なし) として描画される。マスタ管理機能は US-012 で実装予定。
+ * - 静的 `LINES`: マスタは意図的に空 (US-011 で東海4県を取り込むまで)。
+ * - `useLines()`: GET /api/lines を叩く API 経由フック。管理画面 (US-012) で使用。
+ *   既存 routes 系画面 (RouteRegister/Edit/List/Detail/StationPicker) は引き続き
+ *   静的 `LINES` を参照しており、US-011 のタイミングで本フックに切り替える前提。
  *
  * 詳細は docs/adr/0005-master-data-source.md, docs/adr/0006-master-admin.md。
- *
- * 将来 GET /api/lines で動的取得に切替えやすいよう、shape は API 互換にしてある。
  */
+import { useCallback, useEffect, useState } from 'react'
 
 export type LineKind = 'train' | 'subway' | 'bus' | 'other'
 
@@ -26,3 +26,64 @@ export const KIND_OPTIONS: ReadonlyArray<{ value: LineKind; label: string }> = [
   { value: 'bus', label: 'バス' },
   { value: 'other', label: 'その他' },
 ]
+
+export type ApiLine = {
+  id: string
+  name: string
+  kind: LineKind
+  operator: string | null
+  routeSegmentCount: number
+  stationCount: number
+}
+
+export type UseLinesResult = {
+  lines: ApiLine[] | null
+  loading: boolean
+  error: string | null
+  reload: () => void
+}
+
+export function useLines(opts?: { enabled?: boolean }): UseLinesResult {
+  const enabled = opts?.enabled ?? true
+  const [lines, setLines] = useState<ApiLine[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+
+  const reload = useCallback(() => setTick((t) => t + 1), [])
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch('http://localhost:3000/api/lines', {
+          credentials: 'include',
+        })
+        if (cancelled) return
+        if (!res.ok) {
+          setError('路線一覧の取得に失敗しました')
+          setLines([])
+          return
+        }
+        const body = (await res.json()) as { lines: ApiLine[] }
+        setLines(body.lines)
+      } catch {
+        if (!cancelled) {
+          setError('路線一覧の取得に失敗しました')
+          setLines([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [tick, enabled])
+
+  return { lines, loading, error, reload }
+}

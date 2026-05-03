@@ -29,6 +29,8 @@ vi.mock('../lib/lines', () => ({
     { value: 'bus', label: 'バス' },
     { value: 'other', label: 'その他' },
   ],
+  // useLines はこの画面では使わないが、モジュールのモックとしては export する
+  useLines: () => ({ lines: null, loading: false, error: null, reload: () => {} }),
 }))
 
 function renderRouteList(state?: { notice?: string }) {

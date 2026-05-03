@@ -7,6 +7,7 @@ type ApiUser = {
   email: string
   name: string
   postalCode: string | null
+  role: 'user' | 'admin'
 }
 
 type ProfileErrors = {
@@ -599,6 +600,22 @@ export function Account() {
               </button>
             </div>
           </form>
+        </>
+      )}
+
+      {!loading && user && user.role === 'admin' && (
+        <>
+          <div className="divider">
+            <span>Admin</span>
+          </div>
+          <div className="hint" style={{ marginBottom: 12 }}>
+            管理者として以下のマスタ管理画面にアクセスできます。
+          </div>
+          <div className="actions">
+            <Link to="/admin/lines" className="btn btn-secondary">
+              路線マスタ管理
+            </Link>
+          </div>
         </>
       )}
 

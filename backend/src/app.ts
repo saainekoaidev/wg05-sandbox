@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { z } from 'zod'
 import { auth } from './auth.js'
@@ -266,7 +266,7 @@ app.get('/api/users/me', async (c) => {
   if (!session) return c.json({ error: 'unauthorized' }, 401)
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, email: true, name: true, postalCode: true },
+    select: { id: true, email: true, name: true, postalCode: true, role: true },
   })
   if (!user) return c.json({ error: 'not_found' }, 404)
   return c.json(user)
@@ -379,4 +379,178 @@ app.get('/api/stations', async (c) => {
       })),
     })),
   })
+})
+
+// =====================================================================
+// 路線マスタ管理 (US-012, ADR 0006)
+// =====================================================================
+
+/**
+ * 認証 + 管理者ロールを要求するヘルパ。
+ * 未認証なら 401, role!=admin なら 403 を返し、それ以外なら null を返す。
+ */
+async function requireAdmin(c: Context) {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+  const me = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  })
+  if (!me || me.role !== 'admin') {
+    return c.json({ error: 'forbidden' }, 403)
+  }
+  return null
+}
+
+const LineInput = z.object({
+  // id は手動採番のスラッグ or Wikidata Q-ID。1〜80 文字, 半角英数+ハイフン+ドット+アンダースコア。
+  id: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[A-Za-z0-9._-]+$/, 'id_format'),
+  name: z.string().min(1).max(80),
+  kind: KindSchema,
+  operator: z
+    .union([z.string().min(1).max(80), z.literal(''), z.null()])
+    .optional(),
+})
+
+const LineUpdate = LineInput.omit({ id: true })
+
+// 一覧取得は認証ユーザなら誰でも可 (将来 route 画面の dropdown が叩く)。
+app.get('/api/lines', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  const lines = await prisma.line.findMany({
+    orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+    include: {
+      _count: { select: { segments: true, stationLinks: true } },
+    },
+  })
+  return c.json({
+    lines: lines.map((l) => ({
+      id: l.id,
+      name: l.name,
+      kind: l.kind,
+      operator: l.operator,
+      // 管理画面で削除可否判定に使う件数情報も同梱する。
+      routeSegmentCount: l._count.segments,
+      stationCount: l._count.stationLinks,
+    })),
+  })
+})
+
+app.post('/api/lines', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const parsed = LineInput.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+
+  const operator = parsed.data.operator ? parsed.data.operator : null
+  try {
+    const created = await prisma.line.create({
+      data: {
+        id: parsed.data.id,
+        name: parsed.data.name,
+        kind: parsed.data.kind,
+        operator,
+      },
+    })
+    return c.json(created, 201)
+  } catch (e) {
+    // P2002 は unique 制約違反 (id or name 重複)。
+    if ((e as { code?: string }).code === 'P2002') {
+      return c.json({ error: 'duplicate' }, 409)
+    }
+    throw e
+  }
+})
+
+app.put('/api/lines/:id', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const id = c.req.param('id')
+  const existing = await prisma.line.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const parsed = LineUpdate.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+
+  const operator = parsed.data.operator ? parsed.data.operator : null
+  try {
+    const updated = await prisma.line.update({
+      where: { id },
+      data: {
+        name: parsed.data.name,
+        kind: parsed.data.kind,
+        operator,
+      },
+    })
+    return c.json(updated)
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') {
+      return c.json({ error: 'duplicate' }, 409)
+    }
+    throw e
+  }
+})
+
+app.delete('/api/lines/:id', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const id = c.req.param('id')
+  const existing = await prisma.line.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+
+  // ADR 0006 §2: 参照中の RouteSegment があれば 409 で削除拒否。
+  const refs = await prisma.routeSegment.findMany({
+    where: { lineId: id },
+    select: { routeId: true },
+    take: 5,
+  })
+  const refCount = await prisma.routeSegment.count({ where: { lineId: id } })
+  if (refCount > 0) {
+    return c.json(
+      {
+        error: 'in_use',
+        referenceCount: refCount,
+        sampleRouteIds: Array.from(new Set(refs.map((r) => r.routeId))).slice(
+          0,
+          5,
+        ),
+      },
+      409,
+    )
+  }
+
+  // StationLine は onDelete: Cascade で連鎖削除される。
+  await prisma.line.delete({ where: { id } })
+  return c.body(null, 204)
 })

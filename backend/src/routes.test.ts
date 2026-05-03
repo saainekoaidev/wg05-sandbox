@@ -990,4 +990,393 @@ describe('PUT /api/users/me (US-008 プロフィール更新)', () => {
     const body = await res.json()
     expect(body.email).toBe('me11@example.com')
   })
+
+  it('GET /api/users/me は role を含む (新規ユーザは "user")', async () => {
+    const cookie = await signUpAndGetCookie('me12@example.com', 'Test1234', 'A')
+    const res = await getMe(cookie)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.role).toBe('user')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// /api/lines (US-012 路線マスタ管理)
+// ---------------------------------------------------------------------------
+
+async function getLines(cookie: string | null): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/lines', { method: 'GET', headers }),
+  )
+}
+
+async function postLine(cookie: string | null, body: unknown): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/lines', {
+      method: 'POST',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  )
+}
+
+async function putLineById(
+  cookie: string | null,
+  id: string,
+  body: unknown,
+): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/lines/${id}`, {
+      method: 'PUT',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  )
+}
+
+async function deleteLineById(
+  cookie: string | null,
+  id: string,
+): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/lines/${id}`, {
+      method: 'DELETE',
+      headers,
+    }),
+  )
+}
+
+async function makeAdmin(email: string): Promise<void> {
+  await prisma.user.update({ where: { email }, data: { role: 'admin' } })
+}
+
+describe('GET /api/lines (一覧)', () => {
+  it('未認証では 401', async () => {
+    const res = await getLines(null)
+    expect(res.status).toBe(401)
+  })
+
+  it('認証済みなら一般ユーザでも一覧を取得できる (空配列含む)', async () => {
+    const cookie = await signUpAndGetCookie('lg1@example.com', 'Test1234')
+    const res = await getLines(cookie)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual({ lines: [] })
+  })
+
+  it('複数レコードは kind 昇順, name 昇順で並び _count を含む', async () => {
+    const cookie = await signUpAndGetCookie('lg2@example.com', 'Test1234')
+    await prisma.line.createMany({
+      data: [
+        { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', operator: 'JR東海' },
+        { id: 'metro-meijo', name: '名古屋市営地下鉄名城線', kind: 'subway' },
+        { id: 'meitetsu-honsen', name: '名鉄名古屋本線', kind: 'train' },
+      ],
+    })
+    const res = await getLines(cookie)
+    const body = await res.json()
+    const ids = body.lines.map((l: { id: string }) => l.id)
+    // kind ASC: subway < train なので metro-meijo が先頭
+    expect(ids[0]).toBe('metro-meijo')
+    // train 内 name ASC で JR < 名鉄
+    expect(ids[1]).toBe('jr-tokaido')
+    expect(ids[2]).toBe('meitetsu-honsen')
+    expect(body.lines[0]).toMatchObject({
+      routeSegmentCount: 0,
+      stationCount: 0,
+    })
+  })
+})
+
+describe('POST /api/lines (admin 路線作成)', () => {
+  it('未認証では 401', async () => {
+    const res = await postLine(null, {
+      id: 'x',
+      name: 'X',
+      kind: 'train',
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('一般ユーザでは 403', async () => {
+    const cookie = await signUpAndGetCookie('la1@example.com', 'Test1234')
+    const res = await postLine(cookie, {
+      id: 'x',
+      name: 'X',
+      kind: 'train',
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('管理者なら 201 で作成できる', async () => {
+    const email = 'la2@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postLine(cookie, {
+      id: 'jr-tokaido',
+      name: 'JR東海道線',
+      kind: 'train',
+      operator: 'JR東海',
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      id: 'jr-tokaido',
+      name: 'JR東海道線',
+      kind: 'train',
+      operator: 'JR東海',
+    })
+  })
+
+  it('JSON 不正で 400 (invalid_json)', async () => {
+    const email = 'la3@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postLine(cookie, 'not-json')
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('invalid_json')
+  })
+
+  it('id 形式違反 (空白含み) で 400', async () => {
+    const email = 'la4@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postLine(cookie, {
+      id: 'has space',
+      name: 'X',
+      kind: 'train',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('kind が enum 外で 400', async () => {
+    const email = 'la5@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postLine(cookie, {
+      id: 'x',
+      name: 'X',
+      kind: 'spaceship',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('id 重複は 409 (duplicate)', async () => {
+    const email = 'la6@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({
+      data: { id: 'dup', name: 'D1', kind: 'train' },
+    })
+    const res = await postLine(cookie, {
+      id: 'dup',
+      name: 'D2',
+      kind: 'subway',
+    })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('duplicate')
+  })
+
+  it('name 重複も 409', async () => {
+    const email = 'la7@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({
+      data: { id: 'name-a', name: '同名線', kind: 'train' },
+    })
+    const res = await postLine(cookie, {
+      id: 'name-b',
+      name: '同名線',
+      kind: 'train',
+    })
+    expect(res.status).toBe(409)
+  })
+
+  it('operator は空文字なら null として保存される', async () => {
+    const email = 'la8@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postLine(cookie, {
+      id: 'no-op',
+      name: 'NoOp',
+      kind: 'other',
+      operator: '',
+    })
+    expect(res.status).toBe(201)
+    expect((await res.json()).operator).toBeNull()
+  })
+})
+
+describe('PUT /api/lines/:id (admin 更新)', () => {
+  it('未認証では 401', async () => {
+    const res = await putLineById(null, 'x', { name: 'X', kind: 'train' })
+    expect(res.status).toBe(401)
+  })
+
+  it('一般ユーザでは 403', async () => {
+    const cookie = await signUpAndGetCookie('lp1@example.com', 'Test1234')
+    const res = await putLineById(cookie, 'x', { name: 'X', kind: 'train' })
+    expect(res.status).toBe(403)
+  })
+
+  it('存在しない id で 404', async () => {
+    const email = 'lp2@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await putLineById(cookie, 'nonexistent', {
+      name: 'X',
+      kind: 'train',
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('管理者なら 200 で name/kind/operator を更新できる', async () => {
+    const email = 'lp3@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({
+      data: { id: 'edit-me', name: 'Old', kind: 'train', operator: 'A社' },
+    })
+    const res = await putLineById(cookie, 'edit-me', {
+      name: 'New',
+      kind: 'subway',
+      operator: 'B社',
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      id: 'edit-me',
+      name: 'New',
+      kind: 'subway',
+      operator: 'B社',
+    })
+  })
+
+  it('name 重複は 409', async () => {
+    const email = 'lp4@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.createMany({
+      data: [
+        { id: 'a', name: 'A', kind: 'train' },
+        { id: 'b', name: 'B', kind: 'train' },
+      ],
+    })
+    const res = await putLineById(cookie, 'b', { name: 'A', kind: 'train' })
+    expect(res.status).toBe(409)
+  })
+
+  it('id を変更しようとする送信値は無視される (URL の id 優先)', async () => {
+    const email = 'lp5@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({ data: { id: 'fixed', name: 'X', kind: 'train' } })
+    const res = await putLineById(cookie, 'fixed', {
+      id: 'hacked',
+      name: 'Y',
+      kind: 'train',
+    })
+    // LineUpdate は omit({ id: true }) なので id 送信は無視され, 検証は通る
+    expect(res.status).toBe(200)
+    expect((await res.json()).id).toBe('fixed')
+  })
+})
+
+describe('DELETE /api/lines/:id (admin 削除)', () => {
+  it('未認証では 401', async () => {
+    const res = await deleteLineById(null, 'x')
+    expect(res.status).toBe(401)
+  })
+
+  it('一般ユーザでは 403', async () => {
+    const cookie = await signUpAndGetCookie('ld1@example.com', 'Test1234')
+    const res = await deleteLineById(cookie, 'x')
+    expect(res.status).toBe(403)
+  })
+
+  it('存在しない id で 404', async () => {
+    const email = 'ld2@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await deleteLineById(cookie, 'nonexistent')
+    expect(res.status).toBe(404)
+  })
+
+  it('参照のない路線は 204 で削除される', async () => {
+    const email = 'ld3@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({ data: { id: 'unused', name: 'U', kind: 'train' } })
+    const res = await deleteLineById(cookie, 'unused')
+    expect(res.status).toBe(204)
+    const after = await prisma.line.findUnique({ where: { id: 'unused' } })
+    expect(after).toBeNull()
+  })
+
+  it('RouteSegment が参照中なら 409 + referenceCount + sampleRouteIds で拒否', async () => {
+    const email = 'ld4@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({
+      data: { id: 'used', name: 'Used', kind: 'train' },
+    })
+    // 経路を 1 件作って segments で lineId を参照させる
+    const userId = (await prisma.user.findUnique({ where: { email } }))!.id
+    const route = await prisma.route.create({
+      data: {
+        userId,
+        fromStation: 'A',
+        toStation: 'B',
+        segments: {
+          create: [
+            {
+              orderIndex: 1,
+              kind: 'train',
+              lineId: 'used',
+              fromStation: 'A',
+              toStation: 'B',
+              fare: 100,
+            },
+          ],
+        },
+      },
+    })
+
+    const res = await deleteLineById(cookie, 'used')
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('in_use')
+    expect(body.referenceCount).toBe(1)
+    expect(body.sampleRouteIds).toContain(route.id)
+    // 削除されていないことを確認
+    expect(await prisma.line.findUnique({ where: { id: 'used' } })).not.toBeNull()
+  })
+
+  it('StationLine しか持たない路線 (RouteSegment 参照なし) は削除でき、StationLink は cascade される', async () => {
+    const email = 'ld5@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.line.create({
+      data: { id: 'station-only', name: 'SO', kind: 'train' },
+    })
+    await prisma.station.create({
+      data: { id: 'st-1', name: 'S1', kana: 'S1' },
+    })
+    await prisma.stationLine.create({
+      data: { stationId: 'st-1', lineId: 'station-only' },
+    })
+
+    const res = await deleteLineById(cookie, 'station-only')
+    expect(res.status).toBe(204)
+    expect(
+      await prisma.stationLine.findFirst({ where: { lineId: 'station-only' } }),
+    ).toBeNull()
+  })
 })

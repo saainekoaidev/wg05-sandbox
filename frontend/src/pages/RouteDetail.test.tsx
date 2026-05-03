@@ -28,6 +28,7 @@ vi.mock('../lib/lines', () => ({
     { value: 'bus', label: 'バス' },
     { value: 'other', label: 'その他' },
   ],
+  useLines: () => ({ lines: null, loading: false, error: null, reload: () => {} }),
 }))
 
 const ROUTE = {
