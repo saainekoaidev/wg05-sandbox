@@ -5,25 +5,41 @@ const prisma = new PrismaClient()
 /**
  * 路線/駅マスタの seed データ。
  *
- * 2026-05-03 時点でマスタは意図的に空。
- * 東海4県 (愛知/岐阜/三重/静岡) の路線・駅マスタ取り込みは US-011 で対応する。
- * 取り込みデータソース・取り込み方式は docs/adr/0005-master-data-source.md 参照。
+ * 本番マスタは US-011 (docs/adr/0007-tokai-import-spec.md) の取り込みスクリプトで
+ * Wikidata から動的に投入する (`pnpm --filter backend exec tsx scripts/import-master-tokai.ts`)。
+ * seed.ts には **CI / E2E 用の最小フィクスチャだけ** を載せる。
  *
- * テストでマスタが必要な場合は各テスト内で fixture を直接生成する方針 (seed には依存しない)。
+ * - フィクスチャは「e2e 駅選択 popup テスト」が動作する程度の最小限
+ * - id を `test-` プレフィックスで分離し、Wikidata 取り込みデータと衝突しないようにする
+ * - 開発 DB に Wikidata 取り込みを実行している場合は、本フィクスチャと共存する
  */
 const LINES: Array<{
   id: string
   name: string
   kind: 'train' | 'subway' | 'bus' | 'other'
   operator: string | null
-}> = []
+}> = [
+  {
+    id: 'test-tokaido',
+    name: 'JR東海道線 (テスト用)',
+    kind: 'train',
+    operator: 'JR東海',
+  },
+]
 
 const STATIONS: Array<{
   id: string
   name: string
   kana: string
   lineIds: string[]
-}> = []
+}> = [
+  {
+    id: 'test-stn-nagoya',
+    name: '名古屋',
+    kana: 'なごや',
+    lineIds: ['test-tokaido'],
+  },
+]
 
 async function main() {
   for (const line of LINES) {
