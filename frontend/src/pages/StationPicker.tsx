@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
 
@@ -152,6 +153,7 @@ export function StationPicker() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="brand">Station Master</div>
         <h1>駅マスタ参照</h1>
         <p>

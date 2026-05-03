@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import {
   KIND_OPTIONS,
   useLines,
@@ -259,6 +260,7 @@ export function AdminLines() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Admin</div>
           <h1>路線マスタ管理</h1>
         </div>
@@ -273,6 +275,7 @@ export function AdminLines() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Admin</div>
           <h1>路線マスタ管理</h1>
         </div>
@@ -287,6 +290,7 @@ export function AdminLines() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Admin</div>
           <h1>路線マスタ管理</h1>
         </div>
@@ -310,6 +314,7 @@ export function AdminLines() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="head-row">
           <div>
             <div className="brand">Admin / Lines</div>

@@ -86,6 +86,8 @@
 
 すべての画面は共通カード `.shell` を中心に構成し、上部に `.head`（青グラデの帯 + 画面タイトル + サブテキスト）、中央に本体、下部に `.foot`（補助リンク・ログアウト等）を配置する。
 
+ログイン (S02) / サインアップ (S01) を除く全画面の `.head` 右上には共通コンポーネント `<UserBadge />` ([frontend/src/components/UserBadge.tsx](../frontend/src/components/UserBadge.tsx)) を配置する。表示はログイン中ユーザの氏名 (`User.name`) のみで、クリックで `/account` (S08) へ遷移する。詳細は [US-019](requirements.md)。
+
 > 共通スタイル (`.shell` `.btn` `.group` 等) の **一次正は [frontend/src/styles/app.css](../frontend/src/styles/app.css)** に置く。docs/ui-images/ 以下の HTML モックと style.css は設計フェーズの凍結スナップショットとして保持する。詳細は [ADR 0003](adr/0003-design-system-source.md) を参照。
 
 | パーツ | 用途 | 主要 class |

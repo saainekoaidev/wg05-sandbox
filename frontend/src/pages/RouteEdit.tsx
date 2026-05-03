@@ -5,6 +5,7 @@ import {
   type FormEvent,
 } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, KIND_OPTIONS, type LineKind } from '../lib/lines'
 
@@ -410,6 +411,7 @@ export function RouteEdit() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Edit Route</div>
           <h1>通勤経路の編集</h1>
         </div>
@@ -429,6 +431,7 @@ export function RouteEdit() {
     return (
       <div className="shell shell--wide">
         <div className="head">
+          <UserBadge />
           <div className="brand">Edit Route</div>
           <h1>通勤経路の編集</h1>
         </div>
@@ -448,6 +451,7 @@ export function RouteEdit() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="brand">Edit Route</div>
         <h1>通勤経路の編集</h1>
         <p>必要な箇所を変更して「更新する」ボタンを押してください</p>

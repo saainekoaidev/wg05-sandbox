@@ -133,13 +133,15 @@ describe('RouteList', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('ロード中は「読み込み中…」を表示し、フッターも常に描画される', async () => {
+  it('ロード中は「読み込み中…」を表示し、ヘッダの UserBadge と フッタが描画される (US-019)', async () => {
     let resolve: (v: Response) => void = () => {}
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolve = r }))
     renderRouteList()
 
     expect(screen.getByText('読み込み中…')).toBeInTheDocument()
-    expect(screen.getByText('ユーザー: 山田 太郎')).toBeInTheDocument()
+    // US-019: ヘッダ右上の UserBadge に氏名が出る (「ユーザー: 」ラベル無し)
+    expect(screen.getByText('山田 太郎')).toBeInTheDocument()
+    expect(screen.queryByText(/ユーザー[:：]/)).not.toBeInTheDocument()
 
     resolve(new Response(JSON.stringify({ routes: [] }), { status: 200 }))
     await waitFor(() => {
@@ -147,7 +149,7 @@ describe('RouteList', () => {
     })
   })
 
-  it('name が空文字の場合は email にフォールバックして表示する', async () => {
+  it('name が空文字の場合は email にフォールバックして表示する (US-019)', async () => {
     mockUseSession.mockReturnValue({
       data: { user: { id: 'u1', email: 'fallback@example.com', name: '' } },
       isPending: false,
@@ -156,8 +158,9 @@ describe('RouteList', () => {
       new Response(JSON.stringify({ routes: [] }), { status: 200 }),
     )
     renderRouteList()
+    // US-019: ヘッダ右上 UserBadge に email が表示される (name 空時のフォールバック)
     expect(
-      await screen.findByText('ユーザー: fallback@example.com'),
+      await screen.findByText('fallback@example.com'),
     ).toBeInTheDocument()
   })
 

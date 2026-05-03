@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { UserBadge } from '../components/UserBadge'
 import { signOut, useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
 
@@ -188,6 +189,7 @@ export function RouteList() {
   return (
     <div className="shell shell--wide">
       <div className="head">
+        <UserBadge />
         <div className="head-row">
           <div>
             <div className="brand">Routes</div>
@@ -333,10 +335,9 @@ export function RouteList() {
         )}
       </div>
 
-      <div className="foot foot--split">
-        <Link to="/account" aria-label="アカウント設定を開く">
-          ユーザー: {session.user.name || session.user.email}
-        </Link>
+      {/* US-019: ユーザー識別はヘッダ右上の UserBadge に移行。
+          フッタにはログアウトリンクのみ残す。 */}
+      <div className="foot">
         <a
           href="#"
           onClick={(e) => {
