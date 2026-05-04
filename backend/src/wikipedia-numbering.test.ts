@@ -10,7 +10,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-describe('normalizeWikipediaStationName (US-047)', () => {
+describe('normalizeWikipediaStationName (US-047/048)', () => {
   it('末尾「駅」を除去', () => {
     expect(normalizeWikipediaStationName('名古屋駅')).toBe('名古屋')
     expect(normalizeWikipediaStationName('豊橋駅')).toBe('豊橋')
@@ -20,6 +20,17 @@ describe('normalizeWikipediaStationName (US-047)', () => {
   })
   it('空白を trim', () => {
     expect(normalizeWikipediaStationName('  名古屋駅  ')).toBe('名古屋')
+  })
+  it('US-048: 事業者プレフィックスを除去 (DB 正規化と整合)', () => {
+    expect(normalizeWikipediaStationName('近鉄名古屋駅')).toBe('名古屋')
+    expect(normalizeWikipediaStationName('JR東海名古屋駅')).toBe('名古屋')
+    expect(normalizeWikipediaStationName('名鉄名古屋駅')).toBe('名古屋')
+    expect(normalizeWikipediaStationName('名古屋市営地下鉄大曽根駅')).toBe('大曽根')
+  })
+  it('プレフィックスのない長い駅名は維持', () => {
+    expect(normalizeWikipediaStationName('中京競馬場前駅')).toBe(
+      '中京競馬場前',
+    )
   })
 })
 

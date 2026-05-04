@@ -21,6 +21,18 @@ const USER_AGENT =
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 日
 
 /**
+ * Line Q-ID → 取得すべき ja.wikipedia 記事タイトルの override マップ。
+ * Wikidata sitelink で得られる記事が umbrella 記事 (= 全国版) で駅番号 wikitable を持たない場合,
+ * 名古屋地区/静岡地区等の地域版 sub-article に切り替える。
+ *
+ * 例: Q1199703 = 関西本線 (umbrella) は駅番号 wikitable 無し。
+ *     代わりに「関西線 (名古屋地区)」サブ記事を取得すれば駅番号一覧が取れる。
+ */
+export const LINE_ARTICLE_OVERRIDES: Readonly<Record<string, string>> = {
+  Q1199703: '関西線 (名古屋地区)', // JR関西本線 → 名古屋地区サブ記事
+}
+
+/**
  * Wikidata Q-ID から ja.wikipedia の記事タイトルを取得。無ければ null。
  */
 export async function getJaWikipediaTitle(
@@ -70,6 +82,7 @@ export type LineArticle = { title: string; wikitext: string }
 
 /**
  * Line Q-ID に対応する ja.wikipedia 記事を取得 (キャッシュ優先)。
+ * LINE_ARTICLE_OVERRIDES に Q-ID が登録されていればそちらを優先 fetch する。
  */
 export async function fetchLineArticle(
   qid: string,
@@ -86,7 +99,9 @@ export async function fetchLineArticle(
   } catch {
     // miss
   }
-  const title = await getJaWikipediaTitle(qid, fetchImpl)
+  // Override があればそれを使う, 無ければ Wikidata sitelink から取得
+  const title =
+    LINE_ARTICLE_OVERRIDES[qid] ?? (await getJaWikipediaTitle(qid, fetchImpl))
   if (!title) return null
   const wikitext = await fetchPageWikitext(title, fetchImpl)
   if (!wikitext) return null
