@@ -517,4 +517,34 @@ describe('AdminStations', () => {
       expect((screen.getByLabelText('路線') as HTMLSelectElement).value).toBe('')
     })
   })
+
+  describe('US-051 リセットボタン', () => {
+    it('リセットボタンで 運営会社 + 種別 + 路線 が全て初期化される', async () => {
+      const user = userEvent.setup()
+      mockAdminInitialFetch([STATION_NAGOYA, STATION_GIFU])
+      renderAdminStations()
+      await screen.findByText('名古屋')
+
+      await user.selectOptions(screen.getByLabelText('運営会社'), 'jr-tokai')
+      expect(
+        (screen.getByLabelText('運営会社') as HTMLSelectElement).value,
+      ).toBe('jr-tokai')
+
+      await user.click(screen.getByRole('button', { name: /フィルタをリセット/ }))
+      expect(
+        (screen.getByLabelText('運営会社') as HTMLSelectElement).value,
+      ).toBe('')
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe('')
+      expect((screen.getByLabelText('路線') as HTMLSelectElement).value).toBe('')
+    })
+
+    it('フィルタが全て空ならリセットボタンは disabled', async () => {
+      mockAdminInitialFetch([STATION_NAGOYA])
+      renderAdminStations()
+      await screen.findByText('名古屋')
+      expect(
+        screen.getByRole('button', { name: /フィルタをリセット/ }),
+      ).toBeDisabled()
+    })
+  })
 })

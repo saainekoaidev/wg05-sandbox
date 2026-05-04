@@ -479,5 +479,44 @@ describe('AdminLines', () => {
       expect(screen.queryByText('名古屋市営地下鉄名城線')).not.toBeInTheDocument()
       expect(screen.getByText('JR東海道線')).toBeInTheDocument()
     })
+
+    it('US-051: リセットボタンで運営会社+種別が全て初期化される', async () => {
+      const user = userEvent.setup()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ADMIN), { status: 200 }),
+      )
+      renderAdminLines()
+      await screen.findByText('JR東海道線')
+
+      // 種別=subway を選ぶ → operator=nagoya-subway 自動選択
+      await user.selectOptions(screen.getByLabelText('種別'), 'subway')
+      expect(
+        (screen.getByLabelText('運営会社') as HTMLSelectElement).value,
+      ).toBe('nagoya-subway')
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe(
+        'subway',
+      )
+
+      // リセットボタンを押す
+      await user.click(screen.getByRole('button', { name: /フィルタをリセット/ }))
+      expect(
+        (screen.getByLabelText('運営会社') as HTMLSelectElement).value,
+      ).toBe('')
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe('')
+      // 全件表示に戻る
+      expect(screen.getByText('JR東海道線')).toBeInTheDocument()
+      expect(screen.getByText('名古屋市営地下鉄名城線')).toBeInTheDocument()
+    })
+
+    it('US-051: フィルタが全て空ならリセットボタンは disabled', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ADMIN), { status: 200 }),
+      )
+      renderAdminLines()
+      await screen.findByText('JR東海道線')
+      expect(
+        screen.getByRole('button', { name: /フィルタをリセット/ }),
+      ).toBeDisabled()
+    })
   })
 })

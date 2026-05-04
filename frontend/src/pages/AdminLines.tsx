@@ -376,6 +376,20 @@ export function AdminLines() {
               <div className="hint" style={{ alignSelf: 'center' }}>
                 {filteredLines?.length ?? 0} / {linesState.lines.length} 件
               </div>
+              {/* US-051: フィルタを全て初期状態に戻す */}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setOperatorFilter('')
+                  setKindFilter('')
+                }}
+                disabled={!operatorFilter && !kindFilter}
+                style={{ alignSelf: 'center' }}
+                aria-label="フィルタをリセット"
+              >
+                リセット
+              </button>
             </div>
 
             {filteredLines && filteredLines.length === 0 && (
