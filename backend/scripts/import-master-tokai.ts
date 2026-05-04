@@ -172,6 +172,15 @@ export function isLikelyStationNumber(code: string): boolean {
 }
 
 /**
+ * US-040 / ADR 0011: 駅番号 code の英字 prefix (= 数字以前の部分) を取り出す。
+ * 大文字統一。純数字 code (例: "23") では空文字を返し、prefix 判定の対象から外す。
+ */
+export function codePrefix(code: string): string {
+  const m = code.match(/^([A-Za-z]+)/)
+  return m ? m[1].toUpperCase() : ''
+}
+
+/**
  * US-027: 駅名 (漢字) からひらがな読みを推測する。失敗時は空文字を返す。
  * - 残ったカタカナはひらがなに変換
  * - 結果に漢字が残っていれば変換失敗とみなして空文字
@@ -414,9 +423,25 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     }
   }
 
+  // US-040 / ADR 0011: 第 1 パス完了後, qualifier 付き code から「路線 → prefix 集合」を学習する。
+  // この学習データは第 2 パスで unattached code を prefix で割り当てるのに使う。
+  const prefixesByLine = new Map<string, Set<string>>()
+  for (const a of acc.values()) {
+    for (const [lineId, codes] of a.codesByLine) {
+      let prefSet = prefixesByLine.get(lineId)
+      if (!prefSet) {
+        prefSet = new Set<string>()
+        prefixesByLine.set(lineId, prefSet)
+      }
+      for (const c of codes) {
+        const p = codePrefix(c)
+        if (p) prefSet.add(p)
+      }
+    }
+  }
+
   return Array.from(acc.entries()).map(([stationQid, a]) => {
     const lineIds = Array.from(a.lineIds)
-    // ADR 0010 のロジック: 未埋め lineLink (qualifier 付き code が 1 件も入っていない) を集計
     const filledLineIds = new Set<string>()
     for (const [lineId, codes] of a.codesByLine) {
       if (codes.size > 0) filledLineIds.add(lineId)
@@ -424,29 +449,67 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     const unfilledLineIds = lineIds.filter((id) => !filledLineIds.has(id))
     const unattached = Array.from(a.unattachedCodes)
 
-    /** ある lineId の code を組み立てる (qualifier 付き分のみ) */
     const baseCode = (lineId: string): Set<string> =>
       new Set<string>(a.codesByLine.get(lineId) ?? [])
 
-    let unattachedDisposition: Map<string, Set<string>> | null = null
-    if (unattached.length > 0) {
-      if (lineIds.length === 1) {
-        // ADR 0010 §1: 単独路線駅 → unattached を全部その lineLink へ
-        unattachedDisposition = new Map([[lineIds[0]!, new Set(unattached)]])
-      } else if (unfilledLineIds.length === 1) {
-        // ADR 0010 §2: 未埋め lineLink が 1 件 → unattached を残り 1 lineLink に集約
-        unattachedDisposition = new Map([
-          [unfilledLineIds[0]!, new Set(unattached)],
-        ])
-      } else {
-        // ADR 0010 §3: 未埋め lineLink ≥ 2 + unattached ≥ 1 → ambiguous → スキップ
-        unattachedDisposition = null
+    // Disposition: lineId → これから追加すべき code 集合
+    const disposition = new Map<string, Set<string>>()
+    const remainingUnattached = new Set(unattached)
+
+    // US-040 / ADR 0011 (a): prefix で一意に決まる unattached code を該当 lineLink に振り分け。
+    // 「該当駅の未埋め lineLink のうち prefix 集合に含むものが 1 件だけ」のときだけ採用。
+    // 0 件なら fallback、2 件以上の場合は曖昧なので fallback。
+    if (remainingUnattached.size > 0 && unfilledLineIds.length >= 2) {
+      for (const code of Array.from(remainingUnattached)) {
+        const p = codePrefix(code)
+        if (!p) continue
+        const matches = unfilledLineIds.filter((id) =>
+          prefixesByLine.get(id)?.has(p),
+        )
+        if (matches.length === 1) {
+          const target = matches[0]!
+          let set = disposition.get(target)
+          if (!set) {
+            set = new Set<string>()
+            disposition.set(target, set)
+          }
+          set.add(code)
+          remainingUnattached.delete(code)
+        }
       }
+    }
+
+    // 残った unattached の処理は ADR 0010 のフォールバック
+    if (remainingUnattached.size > 0) {
+      // 「(a) で振り分け済の lineLink」を埋まったとみなして再計算する。
+      const stillUnfilled = unfilledLineIds.filter(
+        (id) => !disposition.has(id),
+      )
+      if (lineIds.length === 1) {
+        // ADR 0010 §1: 単独路線駅
+        const target = lineIds[0]!
+        let set = disposition.get(target)
+        if (!set) {
+          set = new Set<string>()
+          disposition.set(target, set)
+        }
+        for (const c of remainingUnattached) set.add(c)
+      } else if (stillUnfilled.length === 1) {
+        // ADR 0010 §2: 残り未埋め 1 件 → そこへ集約
+        const target = stillUnfilled[0]!
+        let set = disposition.get(target)
+        if (!set) {
+          set = new Set<string>()
+          disposition.set(target, set)
+        }
+        for (const c of remainingUnattached) set.add(c)
+      }
+      // ADR 0010 §3: それ以外は ambiguous でスキップ (何もしない)
     }
 
     const links = lineIds.map((lineId) => {
       const set = baseCode(lineId)
-      const extra = unattachedDisposition?.get(lineId)
+      const extra = disposition.get(lineId)
       if (extra) for (const c of extra) set.add(c)
       const sorted = Array.from(set).sort()
       return { lineId, code: sorted.join('/') }
