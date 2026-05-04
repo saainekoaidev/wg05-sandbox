@@ -49,6 +49,32 @@ export const DENY_LINE_QIDS: ReadonlySet<string> = new Set([
   'Q11415803', // 名鉄鏡島線 (1964 廃止)
 ])
 
+/**
+ * US-042 / ADR 0013: 路線階層エイリアス。
+ * Wikidata 上の「親エンティティ Q-ID」(例: Q1190152 = 東海道本線 全国) を
+ * 我々の canonical 路線 (Q11235139 = 名古屋地区, Q11527981 = 静岡地区) にマップする。
+ * 駅エンティティが地区版ではなく親エンティティにのみ紐付いているケース (例: 金山駅) を救う。
+ *
+ * 1 つのエイリアス Q-ID が複数 canonical にマップされる場合は disambiguation 条件
+ * (lonMax / lonMin の経度範囲) で 1 つに絞る。
+ */
+export type LineAliasRule = {
+  /** Wikidata の P81 値で matching する Q-ID (親エンティティ等) */
+  qid: string
+  /** 駅座標経度がこの値以下のときだけマップ (= 西側の地区) */
+  lonMax?: number
+  /** 駅座標経度がこの値以上のときだけマップ (= 東側の地区) */
+  lonMin?: number
+}
+
+export const LINE_ALIASES: Readonly<Record<string, ReadonlyArray<LineAliasRule>>> =
+  {
+    // 東海道線 名古屋地区: 親 (Q1190152 = 東海道本線) のうち豊橋以西分を取り込む
+    Q11235139: [{ qid: 'Q1190152', lonMax: 137.4 }],
+    // 東海道線 静岡地区: 親のうち豊橋以東分を取り込む
+    Q11527981: [{ qid: 'Q1190152', lonMin: 137.4 }],
+  }
+
 /** その他事業者 (運営者ベース, ADR 0007 §1.2)。順序が同一路線複数事業者時の優先順 (§3.4)。 */
 export const OTHER_OPERATORS: ReadonlyArray<{
   qid: string
@@ -178,6 +204,38 @@ export function isLikelyStationNumber(code: string): boolean {
 export function codePrefix(code: string): string {
   const m = code.match(/^([A-Za-z]+)/)
   return m ? m[1].toUpperCase() : ''
+}
+
+/**
+ * US-042 / ADR 0013: 駅の P81 値 (lineQid) を取り込み対象 canonical 路線に正規化する。
+ * - lineQid が canonical 集合 (canonicalSet) に直接含まれていればそのまま返す。
+ * - 含まれていなければ LINE_ALIASES から候補を引き、disambiguation して 1 つに絞る。
+ * - 解決できない場合は null。
+ */
+export function resolveCanonicalLine(
+  lineQid: string,
+  canonicalSet: ReadonlySet<string>,
+  stationCoord: { lon: number; lat: number } | null,
+): string | null {
+  if (canonicalSet.has(lineQid)) return lineQid
+  const candidates: { canonical: string; rule: LineAliasRule }[] = []
+  for (const [canonical, rules] of Object.entries(LINE_ALIASES)) {
+    if (!canonicalSet.has(canonical)) continue
+    for (const r of rules) {
+      if (r.qid === lineQid) candidates.push({ canonical, rule: r })
+    }
+  }
+  if (candidates.length === 0) return null
+  if (candidates.length === 1) return candidates[0]!.canonical
+  // 複数候補: 座標 disambiguation
+  if (stationCoord) {
+    for (const c of candidates) {
+      if (c.rule.lonMax !== undefined && stationCoord.lon > c.rule.lonMax) continue
+      if (c.rule.lonMin !== undefined && stationCoord.lon < c.rule.lonMin) continue
+      return c.canonical
+    }
+  }
+  return null
 }
 
 /**
@@ -414,7 +472,16 @@ export async function fetchStationsForLines(
   fetcher: typeof fetchSparql = fetchSparql,
 ): Promise<FetchedStation[]> {
   if (lineIds.length === 0) return []
-  const lineVals = lineIds.map((q) => `wd:${q}`).join(' ')
+  // US-042 / ADR 0013: alias QID も VALUES に含めて SPARQL で取得対象にする。
+  // (駅が canonical Q-ID に直接紐付いていないケースを救うため。)
+  const canonicalSet = new Set(lineIds)
+  const aliasQids = new Set<string>()
+  for (const canonical of lineIds) {
+    const rules = LINE_ALIASES[canonical] ?? []
+    for (const r of rules) aliasQids.add(r.qid)
+  }
+  const allLineQids = [...lineIds, ...aliasQids]
+  const lineVals = allLineQids.map((q) => `wd:${q}`).join(' ')
   const prefVals = PREF_QIDS.map((q) => `wd:${q}`).join(' ')
   // 駅情報は重複しがち (P81 が複数あり, 4県内駅で複数県マッチ等)。SELECT 後にアプリ層で集約する。
   // US-033 / ADR 0008: P296 は statement node + qualifier (路線対応) で取得し, 駅×路線粒度の
@@ -443,7 +510,8 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
 }
 `
   const rows = await fetcher(query)
-  const targetSet = new Set(lineIds)
+  // canonicalSet は上で構築済 (取り込み対象 = 直接 lineIds)
+  const targetSet = canonicalSet
 
   type Acc = {
     name: string
@@ -487,21 +555,25 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     if (r.namedAfter?.value) {
       a.namedAfter.add(qidFromUri(r.namedAfter.value))
     }
-    if (targetSet.has(lineQid)) a.lineIds.add(lineQid)
+    // US-042 / ADR 0013: lineQid を canonical 路線に正規化 (alias 経由なら disambiguation)
+    const resolvedLine = resolveCanonicalLine(lineQid, canonicalSet, a.coord)
+    if (resolvedLine) a.lineIds.add(resolvedLine)
     const codeVal = r.stationCode?.value
     // US-037 / ADR 0009: 電報略号 (カタカナ表記の旧国鉄識別子) は駅番号と区別して除外する
     if (codeVal && isLikelyStationNumber(codeVal)) {
-      // US-039 / ADR 0010: P81 / P518 のどちらかが取り込み対象路線を指していれば採用
+      // US-039 / ADR 0010 / US-042 ADR 0013:
+      //   P81 / P518 qualifier も canonical 路線に正規化したうえで採用判定する
       const qP81 = r.qLineByP81?.value ? qidFromUri(r.qLineByP81.value) : null
       const qP518 = r.qLineByP518?.value
         ? qidFromUri(r.qLineByP518.value)
         : null
-      const qLine =
-        qP81 && targetSet.has(qP81)
-          ? qP81
-          : qP518 && targetSet.has(qP518)
-            ? qP518
-            : null
+      const qLineP81 = qP81
+        ? resolveCanonicalLine(qP81, canonicalSet, a.coord)
+        : null
+      const qLineP518 = qP518
+        ? resolveCanonicalLine(qP518, canonicalSet, a.coord)
+        : null
+      const qLine = qLineP81 ?? qLineP518
       if (qLine) {
         const set = a.codesByLine.get(qLine) ?? new Set<string>()
         set.add(codeVal)
