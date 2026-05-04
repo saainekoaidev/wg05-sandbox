@@ -10,6 +10,7 @@ import {
   lineNamesMatch,
   normalizeN02StationName,
   planN02Merge,
+  representativePoint,
 } from '../scripts/lib/n02.js'
 
 describe('normalizeLineName (US-045 / ADR 0016)', () => {
@@ -69,22 +70,39 @@ describe('loadN02Stations (US-045)', () => {
     expect(stations).toEqual([])
   })
 
-  it('GeoJSON Point feature を 4 県 bbox 内のみ取り込む', async () => {
+  it('GeoJSON feature を 4 県 bbox 内のみ取り込む (Point + LineString 両対応)', async () => {
     // 一時ディレクトリに mock GeoJSON を書く
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'n02-test-'))
     try {
       const fc = {
         type: 'FeatureCollection',
         features: [
-          // 名古屋駅 (愛知, bbox 内)
+          // 名古屋駅 (愛知, bbox 内, Point geometry)
           {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [136.881, 35.171] },
             properties: {
               N02_001: '12',
-              N02_003: '東海旅客鉄道',
-              N02_004: '東海道本線',
+              N02_003: '東海道本線', // 路線名
+              N02_004: '東海旅客鉄道', // 運営会社
               N02_005: '名古屋',
+            },
+          },
+          // N02-25 公式版相当: 駅プラットフォームを LineString で表現
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [136.9, 35.18],
+                [136.901, 35.181], // 重心 ≒ (136.9005, 35.1805)
+              ],
+            },
+            properties: {
+              N02_001: '12',
+              N02_003: '中央本線',
+              N02_004: '東海旅客鉄道',
+              N02_005: 'テスト駅A',
             },
           },
           // 東京駅 (bbox 外, 経度 139.77 > N02_BBOX.lonMax=139.5)
@@ -93,25 +111,9 @@ describe('loadN02Stations (US-045)', () => {
             geometry: { type: 'Point', coordinates: [139.7672, 35.6812] },
             properties: {
               N02_001: '12',
-              N02_003: '東日本旅客鉄道',
-              N02_004: '東海道本線',
+              N02_003: '東海道本線',
+              N02_004: '東日本旅客鉄道',
               N02_005: '東京',
-            },
-          },
-          // 路線セクション (LineString) は無視される
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: [
-                [136.88, 35.17],
-                [136.89, 35.18],
-              ],
-            },
-            properties: {
-              N02_001: '12',
-              N02_003: '東海旅客鉄道',
-              N02_004: '東海道本線',
             },
           },
           // properties 不完全 (路線名なし) は無視
@@ -128,11 +130,15 @@ describe('loadN02Stations (US-045)', () => {
         'utf8',
       )
       const stations = await loadN02Stations(tmp)
-      expect(stations).toHaveLength(1)
-      expect(stations[0]!.name).toBe('名古屋')
-      expect(stations[0]!.lineName).toBe('東海道本線')
-      expect(stations[0]!.operator).toBe('東海旅客鉄道')
-      expect(stations[0]!.lon).toBeCloseTo(136.881)
+      expect(stations).toHaveLength(2)
+      const byName = new Map(stations.map((s) => [s.name, s]))
+      expect(byName.get('名古屋')).toMatchObject({
+        lineName: '東海道本線',
+        operator: '東海旅客鉄道',
+      })
+      expect(byName.get('テスト駅A')).toBeDefined()
+      expect(byName.get('テスト駅A')!.lon).toBeCloseTo(136.9005)
+      expect(byName.get('テスト駅A')!.lat).toBeCloseTo(35.1805)
     } finally {
       await fs.rm(tmp, { recursive: true, force: true })
     }
@@ -149,8 +155,8 @@ describe('loadN02Stations (US-045)', () => {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [136.881, 35.171] },
             properties: {
-              N02_003: '東海旅客鉄道',
-              N02_004: '中央本線',
+              N02_003: '中央本線',
+              N02_004: '東海旅客鉄道',
               N02_005: '名古屋',
             },
           },
@@ -294,6 +300,32 @@ describe('planN02Merge (US-045)', () => {
     ]
     const actions = planN02Merge(n02, wd, lines)
     expect(actions).toHaveLength(1)
+  })
+})
+
+describe('representativePoint (US-045)', () => {
+  it('Point geometry はそのまま', () => {
+    expect(
+      representativePoint({ type: 'Point', coordinates: [136.881, 35.171] }),
+    ).toEqual({ lon: 136.881, lat: 35.171 })
+  })
+  it('LineString は全頂点の平均', () => {
+    const p = representativePoint({
+      type: 'LineString',
+      coordinates: [
+        [136.9, 35.18],
+        [136.901, 35.181],
+      ],
+    })
+    expect(p).not.toBeNull()
+    expect(p!.lon).toBeCloseTo(136.9005)
+    expect(p!.lat).toBeCloseTo(35.1805)
+  })
+  it('未対応 geometry / undefined は null', () => {
+    expect(representativePoint(undefined)).toBeNull()
+    expect(
+      representativePoint({ type: 'Polygon', coordinates: [] }),
+    ).toBeNull()
   })
 })
 

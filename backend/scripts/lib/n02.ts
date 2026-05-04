@@ -5,14 +5,16 @@
  * 「座標 < 200m + 名称一致」で突合し, 一致した駅は Line を補完, 一致しない駅は
  * (取り込み対象 Line に該当すれば) 新規 Station として追加する。
  *
- * N02 GeoJSON の Point feature properties (典型例):
+ * N02 GeoJSON Feature の properties (国交省 N02 仕様):
  *   N02_001: 鉄道種別  ("11" 新幹線 / "12" JR在来線 / "13" 民鉄 / "14" 公営 / "15" 第三セクター)
  *   N02_002: 事業者種別
- *   N02_003: 運営会社名 (例: "東海旅客鉄道")
- *   N02_004: 路線名     (例: "東海道本線")
+ *   N02_003: 路線名     (例: "東海道本線")
+ *   N02_004: 運営会社名 (例: "東海旅客鉄道")
  *   N02_005: 駅名       (例: "名古屋")
  *
- * 当面は Point feature のみ駅として処理。LineString (路線セクション) は将来検討。
+ * geometry は LineString (駅プラットフォームの線分表現) なのでアプリ層で重心 (代表点)
+ * を計算して Point として扱う。Point geometry の駅データもサポート (古い版や Wikipedia 派生
+ * データに対応)。
  */
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
@@ -39,8 +41,44 @@ type N02FeatureProps = {
 
 type N02Feature = {
   type: 'Feature'
-  geometry: { type: string; coordinates: number[] | number[][] }
+  geometry: {
+    type: string
+    coordinates: number[] | number[][] | number[][][]
+  }
   properties: N02FeatureProps
+}
+
+/**
+ * GeoJSON geometry から駅の代表点 (lon, lat) を取り出す。
+ * - Point: 座標そのまま
+ * - LineString: 全頂点の単純平均 (≒ 重心の近似)
+ * - 他 / 不正: null
+ */
+export function representativePoint(
+  geom: N02Feature['geometry'] | undefined,
+): { lon: number; lat: number } | null {
+  if (!geom) return null
+  if (geom.type === 'Point') {
+    const c = geom.coordinates as number[]
+    if (typeof c?.[0] !== 'number' || typeof c?.[1] !== 'number') return null
+    return { lon: c[0]!, lat: c[1]! }
+  }
+  if (geom.type === 'LineString') {
+    const coords = geom.coordinates as number[][]
+    if (!Array.isArray(coords) || coords.length === 0) return null
+    let sumLon = 0
+    let sumLat = 0
+    let n = 0
+    for (const pt of coords) {
+      if (typeof pt?.[0] !== 'number' || typeof pt?.[1] !== 'number') continue
+      sumLon += pt[0]!
+      sumLat += pt[1]!
+      n++
+    }
+    if (n === 0) return null
+    return { lon: sumLon / n, lat: sumLat / n }
+  }
+  return null
 }
 
 type N02FeatureCollection = {
@@ -165,17 +203,16 @@ export async function loadN02Stations(cacheDir: string): Promise<N02Station[]> {
       continue
     }
     for (const feature of json.features ?? []) {
-      if (feature.geometry?.type !== 'Point') continue
-      const coords = feature.geometry.coordinates as number[]
-      if (!coords || coords.length < 2) continue
-      const [lon, lat] = coords
-      if (typeof lon !== 'number' || typeof lat !== 'number') continue
+      const repr = representativePoint(feature.geometry)
+      if (!repr) continue
+      const { lon, lat } = repr
       if (lon < N02_BBOX.lonMin || lon > N02_BBOX.lonMax) continue
       if (lat < N02_BBOX.latMin || lat > N02_BBOX.latMax) continue
       const props = feature.properties ?? {}
       const name = (props.N02_005 ?? '').trim()
-      const lineName = (props.N02_004 ?? '').trim()
-      const operator = (props.N02_003 ?? '').trim()
+      // 国交省 N02 仕様: N02_003 = 路線名, N02_004 = 運営会社
+      const lineName = (props.N02_003 ?? '').trim()
+      const operator = (props.N02_004 ?? '').trim()
       if (!name || !lineName) continue
       out.push({ name, lineName, operator, lon, lat })
     }
