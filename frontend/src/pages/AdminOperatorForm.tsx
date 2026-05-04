@@ -2,7 +2,15 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
+import type { LineKind } from '../lib/lines'
 import { useAdminOperators } from '../lib/operators'
+
+const KIND_OPTIONS: ReadonlyArray<{ value: LineKind; label: string }> = [
+  { value: 'train', label: '電車' },
+  { value: 'subway', label: '地下鉄' },
+  { value: 'bus', label: 'バス' },
+  { value: 'other', label: 'その他' },
+]
 
 type ApiUser = {
   id: string
@@ -70,6 +78,8 @@ export function AdminOperatorForm({ mode }: AdminOperatorFormProps) {
   const [formName, setFormName] = useState('')
   /// aliases は カンマ区切り入力 → JSON 配列文字列に変換して送信。
   const [formAliasesInput, setFormAliasesInput] = useState('')
+  /// US-052: 運営する種別の Set。チェックボックス UI で操作。
+  const [formKinds, setFormKinds] = useState<Set<LineKind>>(() => new Set())
   const [prefilled, setPrefilled] = useState(false)
   const [editTargetMissing, setEditTargetMissing] = useState(false)
 
@@ -84,8 +94,18 @@ export function AdminOperatorForm({ mode }: AdminOperatorFormProps) {
     setFormId(target.id)
     setFormName(target.name)
     setFormAliasesInput(target.aliases.join(', '))
+    setFormKinds(new Set(target.kinds))
     setPrefilled(true)
   }, [mode, editId, opsState.operators, prefilled])
+
+  function toggleKind(k: LineKind) {
+    setFormKinds((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  }
 
   type FormError = { message: string; field: string | null }
   const [formError, setFormError] = useState<FormError | null>(null)
@@ -134,6 +154,7 @@ export function AdminOperatorForm({ mode }: AdminOperatorFormProps) {
       return fail('name', '名称は80文字以内で入力してください')
 
     const aliases = buildAliasesJson()
+    const kinds = JSON.stringify(Array.from(formKinds))
 
     setSubmitting(true)
     try {
@@ -144,8 +165,8 @@ export function AdminOperatorForm({ mode }: AdminOperatorFormProps) {
       const method = mode === 'create' ? 'POST' : 'PUT'
       const body =
         mode === 'create'
-          ? { id: formId, name: formName, aliases }
-          : { name: formName, aliases }
+          ? { id: formId, name: formName, aliases, kinds }
+          : { name: formName, aliases, kinds }
 
       const res = await fetch(url, {
         method,
@@ -366,6 +387,29 @@ export function AdminOperatorForm({ mode }: AdminOperatorFormProps) {
           />
           <div className="hint">
             カンマ区切りで複数指定できます。表記揺らぎ吸収用。
+          </div>
+        </div>
+
+        {/* US-052: 運営する種別をチェックボックスで選択 */}
+        <div className="group">
+          <label>運営する種別</label>
+          <div role="group" aria-label="運営する種別" className="kind-checks" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {KIND_OPTIONS.map((opt) => (
+              <label key={opt.value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={formKinds.has(opt.value)}
+                  onChange={() => toggleKind(opt.value)}
+                  disabled={submitting}
+                  aria-label={`${opt.label}を運営する`}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+          <div className="hint">
+            この運営会社が運営する種別を選択。各画面で運営会社が選ばれた時、種別 dropdown が
+            ここで指定した種別に絞り込まれます。空のままなら絞り込み無し。
           </div>
         </div>
 

@@ -4,11 +4,14 @@
  * 経路登録 / 路線フォーム / 駅フォームの operator 選択 dropdown で参照する。
  */
 import { useCallback, useEffect, useState } from 'react'
+import type { LineKind } from './lines'
 
 export type ApiOperator = {
   id: string
   name: string
   aliases: string[]
+  /// US-052: 当該 operator が運営する路線種別。
+  kinds: LineKind[]
 }
 
 export type ApiAdminOperator = ApiOperator & {

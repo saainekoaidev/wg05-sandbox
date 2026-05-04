@@ -33,6 +33,7 @@ const OP_JR = {
   id: 'jr-tokai',
   name: 'JR東海',
   aliases: ['東海旅客鉄道'],
+  kinds: ['train'],
   lineCount: 14,
   stationCount: 200,
 }
@@ -41,6 +42,7 @@ const OP_FREE = {
   id: 'tmp-free',
   name: 'TmpFree',
   aliases: [],
+  kinds: [],
   lineCount: 0,
   stationCount: 0,
 }

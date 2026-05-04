@@ -8,6 +8,7 @@ import {
   applyKind,
   applyLine,
   applyOperator,
+  visibleKinds,
   visibleLines,
   visibleOperatorIds,
 } from '../lib/cascade'
@@ -80,7 +81,7 @@ export function StationPicker() {
   const linesState = useLines({ enabled: !!session })
   const operatorsState = useOperators({ enabled: !!session })
 
-  // US-050: cascade 用データ
+  // US-050 / US-052: cascade 用データ (Operator.kinds 込み)
   const cascadeData = useMemo(
     () => ({
       lines: (linesState.lines ?? []).map((l) => ({
@@ -88,8 +89,12 @@ export function StationPicker() {
         kind: l.kind,
         operatorId: l.operatorId,
       })),
+      operators: (operatorsState.operators ?? []).map((o) => ({
+        id: o.id,
+        kinds: o.kinds,
+      })),
     }),
-    [linesState.lines],
+    [linesState.lines, operatorsState.operators],
   )
 
   function onChangeOperator(op: string) {
@@ -114,6 +119,11 @@ export function StationPicker() {
   const visibleOpIds = useMemo(
     () => visibleOperatorIds({ kind, line: lineId }, cascadeData),
     [kind, lineId, cascadeData],
+  )
+  // US-052: 種別 dropdown を operator.kinds + line で絞り込み
+  const visibleKindSet = useMemo(
+    () => visibleKinds({ operator, line: lineId }, cascadeData),
+    [operator, lineId, cascadeData],
   )
   const visibleLineList = useMemo(
     () => visibleLines({ operator, kind }, linesState.lines ?? []),
@@ -316,10 +326,16 @@ export function StationPicker() {
               onChange={(e) => onChangeKind(e.target.value as '' | LineKind)}
             >
               <option value="">すべて</option>
-              <option value="train">電車</option>
-              <option value="subway">地下鉄</option>
-              <option value="bus">バス</option>
-              <option value="other">その他</option>
+              {(['train', 'subway', 'bus', 'other'] as const)
+                .filter(
+                  (k) =>
+                    kind === k || visibleKindSet.size === 0 || visibleKindSet.has(k),
+                )
+                .map((k) => (
+                  <option key={k} value={k}>
+                    {{ train: '電車', subway: '地下鉄', bus: 'バス', other: 'その他' }[k]}
+                  </option>
+                ))}
             </select>
           </div>
           <div className="group">

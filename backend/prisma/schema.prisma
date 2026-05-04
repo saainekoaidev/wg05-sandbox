@@ -102,10 +102,13 @@ model RouteSegment {
 
 /// 運営会社マスタ (US-049 / ADR 0019)。路線の所属事業者を表す。
 /// aliases は表記揺らぎ ("東海旅客鉄道" → "JR東海" 等) を JSON 配列で保持。
+/// kinds (US-052) は当該 operator が運営する路線種別 (train/subway/bus/other) を JSON 配列で保持。
+/// 各画面の種別 dropdown を operator で絞り込むために使う。空配列 = 絞り込み無し。
 model Operator {
   id        String    @id
   name      String    @unique
   aliases   String    @default("[]")
+  kinds     String    @default("[]")
   lines     Line[]
   stations  Station[]
   createdAt DateTime  @default(now())

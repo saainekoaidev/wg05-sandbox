@@ -40,9 +40,9 @@ vi.mock('../lib/lines', () => ({
 vi.mock('../lib/operators', () => ({
   useOperators: () => ({
     operators: [
-      { id: 'jr-tokai', name: 'JR東海', aliases: [] },
-      { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
-      { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [] },
+      { id: 'jr-tokai', name: 'JR東海', aliases: [], kinds: ['train'] },
+      { id: 'meitetsu', name: '名古屋鉄道', aliases: [], kinds: ['train'] },
+      { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [], kinds: ['subway'] },
     ],
     loading: false,
     error: null,
@@ -353,20 +353,28 @@ describe('StationPicker', () => {
       expect(lineSelect.value).toBe('higashiyama')
     })
 
-    it('種別を変更して現在選択中の路線と矛盾するときは路線がクリアされる', async () => {
+    it('US-052: 別 operator の路線に切り替えると運営会社+種別+路線が同時に変わる', async () => {
       const user = userEvent.setup()
       renderPicker()
+      const operatorSelect = screen.getByLabelText('運営会社') as HTMLSelectElement
       const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
       const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
 
-      // 電車路線 (JR東海道線) を選ぶ → 種別=電車に揃う
+      // 電車路線 (JR東海道線) を選ぶ → 種別=電車, 運営会社=jr-tokai に揃う
       await user.selectOptions(lineSelect, 'jr-tokaido')
       expect(kindSelect.value).toBe('train')
+      expect(operatorSelect.value).toBe('jr-tokai')
       expect(lineSelect.value).toBe('jr-tokaido')
 
-      // 種別を 地下鉄 に変更 → JR東海道線 (電車) と矛盾するため路線クリア
+      // 一度 operator と line をクリア (kind 切替の前提)
+      await user.selectOptions(lineSelect, '')
+      await user.selectOptions(operatorSelect, '')
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe('train')
+
+      // 種別=地下鉄 に変更 → 候補 operator=nagoya-subway 自動選択
       await user.selectOptions(kindSelect, 'subway')
       expect(kindSelect.value).toBe('subway')
+      expect(operatorSelect.value).toBe('nagoya-subway')
       expect(lineSelect.value).toBe('')
     })
 

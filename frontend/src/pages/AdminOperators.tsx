@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
+import type { LineKind } from '../lib/lines'
 import { useAdminOperators, type ApiAdminOperator } from '../lib/operators'
+
+const KIND_LABEL: Record<LineKind, string> = {
+  train: '電車',
+  subway: '地下鉄',
+  bus: 'バス',
+  other: 'その他',
+}
 
 type ApiUser = {
   id: string
@@ -235,6 +243,7 @@ export function AdminOperators() {
                   <th>ID</th>
                   <th>名称</th>
                   <th>別称 (aliases)</th>
+                  <th>種別</th>
                   <th className="col-num">路線</th>
                   <th className="col-num">駅</th>
                   <th className="col-actions">操作</th>
@@ -248,6 +257,11 @@ export function AdminOperators() {
                     </td>
                     <td>{op.name}</td>
                     <td>{op.aliases.length > 0 ? op.aliases.join(', ') : '—'}</td>
+                    <td>
+                      {op.kinds.length > 0
+                        ? op.kinds.map((k) => KIND_LABEL[k]).join(', ')
+                        : '—'}
+                    </td>
                     <td className="col-num">{op.lineCount}</td>
                     <td className="col-num">{op.stationCount}</td>
                     <td>
