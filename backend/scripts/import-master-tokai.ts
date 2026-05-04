@@ -181,6 +181,81 @@ export function codePrefix(code: string): string {
 }
 
 /**
+ * US-041 / ADR 0012: Wikidata の P625 wkt-literal "Point(lon lat)" を解析。
+ * 解析失敗時は null を返す。
+ */
+export function parseWktPoint(
+  wkt: string | undefined | null,
+): { lon: number; lat: number } | null {
+  if (!wkt) return null
+  const m = wkt.match(/^Point\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)$/i)
+  if (!m) return null
+  const lon = parseFloat(m[1]!)
+  const lat = parseFloat(m[2]!)
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
+  return { lon, lat }
+}
+
+/**
+ * US-041 / ADR 0012: 2 点間の球面距離 (m) を Haversine で概算。
+ */
+export function haversineMeters(
+  a: { lon: number; lat: number },
+  b: { lon: number; lat: number },
+): number {
+  const R = 6371000 // m
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(b.lat - a.lat)
+  const dLon = toRad(b.lon - a.lon)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+/** US-041 / ADR 0012: 同一物理駅とみなす座標距離の閾値 (m)。 */
+export const MERGE_COORD_THRESHOLD_M = 500
+
+/**
+ * 簡易 Union-Find (driver 同一性のグループ判定用)。
+ */
+class UnionFind {
+  private parent = new Map<string, string>()
+  add(x: string): void {
+    if (!this.parent.has(x)) this.parent.set(x, x)
+  }
+  find(x: string): string {
+    let p = this.parent.get(x) ?? x
+    while (p !== this.parent.get(p)) {
+      const gp = this.parent.get(p)!
+      this.parent.set(p, this.parent.get(gp)!)
+      p = this.parent.get(p)!
+    }
+    return p
+  }
+  union(a: string, b: string): void {
+    this.add(a)
+    this.add(b)
+    const ra = this.find(a)
+    const rb = this.find(b)
+    if (ra !== rb) this.parent.set(ra, rb)
+  }
+  /** すべての要素を root ごとにグループ化して返す */
+  groups(): Map<string, string[]> {
+    const out = new Map<string, string[]>()
+    for (const x of this.parent.keys()) {
+      const r = this.find(x)
+      const arr = out.get(r) ?? []
+      arr.push(x)
+      out.set(r, arr)
+    }
+    return out
+  }
+}
+
+/**
  * US-027: 駅名 (漢字) からひらがな読みを推測する。失敗時は空文字を返す。
  * - 残ったカタカナはひらがなに変換
  * - 結果に漢字が残っていれば変換失敗とみなして空文字
@@ -346,8 +421,9 @@ export async function fetchStationsForLines(
   // 駅番号 (StationLine.code) として割り当てる。
   // US-039 / ADR 0010: 路線対応 qualifier は Wikidata 上で P81 と P518 の両方が使われる
   // (例: 千種駅 H12 は pq:P518 = 東山線)。両方 OPTIONAL で取得し、どちらかでも該当すれば採用する。
+  // US-041 / ADR 0012: マージ判定用に P625 (座標) と P138 (名前の由来) も取得する。
   const query = `
-SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qLineByP518 ?line WHERE {
+SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qLineByP518 ?coord ?namedAfter ?line WHERE {
   VALUES ?targetLine { ${lineVals} }
   VALUES ?pref { ${prefVals} }
   ?station wdt:P81 ?targetLine ;
@@ -355,6 +431,8 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
            wdt:P131* ?pref ;
            wdt:P81 ?line .
   OPTIONAL { ?station wdt:P1814 ?stationKana }
+  OPTIONAL { ?station wdt:P625 ?coord }
+  OPTIONAL { ?station wdt:P138 ?namedAfter }
   OPTIONAL {
     ?station p:P296 ?codeStmt .
     ?codeStmt ps:P296 ?stationCode .
@@ -377,6 +455,10 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     codesByLine: Map<string, Set<string>>
     /** qualifier 無し or qualifier が対象外路線の code 集合 */
     unattachedCodes: Set<string>
+    /** US-041 / ADR 0012: マージ判定用の座標 (1 駅で複数値があれば後勝ち) */
+    coord: { lon: number; lat: number } | null
+    /** US-041 / ADR 0012: P138 (名前の由来) リンク先の Q-ID 集合 */
+    namedAfter: Set<string>
   }
   const acc = new Map<string, Acc>()
   for (const r of rows) {
@@ -394,8 +476,16 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
         lineIds: new Set(),
         codesByLine: new Map(),
         unattachedCodes: new Set(),
+        coord: parseWktPoint(r.coord?.value),
+        namedAfter: new Set(),
       }
       acc.set(stationQid, a)
+    } else if (a.coord === null) {
+      // 初回 row で coord が無くても後の row で取れた場合は補完
+      a.coord = parseWktPoint(r.coord?.value)
+    }
+    if (r.namedAfter?.value) {
+      a.namedAfter.add(qidFromUri(r.namedAfter.value))
     }
     if (targetSet.has(lineQid)) a.lineIds.add(lineQid)
     const codeVal = r.stationCode?.value
@@ -423,10 +513,99 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     }
   }
 
+  // US-041 / ADR 0012: 同一物理駅とみなせる Q-ID をマージする。
+  //   (a) P138 (named after) リンク → 強い signal
+  //   (b) 同名 + 座標距離 < MERGE_COORD_THRESHOLD_M → 弱い signal
+  // Union-Find で連結成分を作り、各成分を 1 つの canonical Q-ID にまとめる。
+  const allQids = Array.from(acc.keys())
+  const uf = new UnionFind()
+  for (const q of allQids) uf.add(q)
+  // (a) P138 リンク
+  for (const q of allQids) {
+    for (const target of acc.get(q)!.namedAfter) {
+      if (acc.has(target)) uf.union(q, target)
+    }
+  }
+  // (b) 同名 + 座標近接 (O(N^2) だが N ~ 800 程度なので問題なし)
+  for (let i = 0; i < allQids.length; i++) {
+    const qa = allQids[i]!
+    const aa = acc.get(qa)!
+    if (!aa.coord) continue
+    for (let j = i + 1; j < allQids.length; j++) {
+      const qb = allQids[j]!
+      const ab = acc.get(qb)!
+      if (!ab.coord) continue
+      if (aa.name !== ab.name) continue
+      if (uf.find(qa) === uf.find(qb)) continue // 既に union 済み
+      const d = haversineMeters(aa.coord, ab.coord)
+      if (d < MERGE_COORD_THRESHOLD_M) uf.union(qa, qb)
+    }
+  }
+
+  // 各グループから canonical Q-ID を選び、メンバーをマージする。
+  const merged = new Map<string, Acc>()
+  for (const [, members] of uf.groups()) {
+    if (members.length === 1) {
+      const q = members[0]!
+      merged.set(q, acc.get(q)!)
+      continue
+    }
+    // canonical 選定: 1) 他メンバーから P138 で参照されているものを優先
+    //                  2) lineLink 数が最大のもの
+    //                  3) Q-ID lex 昇順で先頭
+    const memberSet = new Set(members)
+    const referenced = members.filter((q) =>
+      members.some(
+        (other) => other !== q && acc.get(other)!.namedAfter.has(q),
+      ),
+    )
+    let canonical: string
+    if (referenced.length > 0) {
+      canonical = referenced.sort()[0]!
+    } else {
+      const sorted = [...members].sort((x, y) => {
+        const lx = acc.get(x)!.lineIds.size
+        const ly = acc.get(y)!.lineIds.size
+        if (lx !== ly) return ly - lx
+        return x.localeCompare(y)
+      })
+      canonical = sorted[0]!
+    }
+    // マージ: canonical の Acc に他メンバーを取り込む
+    const base = acc.get(canonical)!
+    const mergedAcc: Acc = {
+      name: base.name,
+      kana: base.kana,
+      sourceUri: base.sourceUri,
+      lineIds: new Set(base.lineIds),
+      codesByLine: new Map(
+        Array.from(base.codesByLine, ([k, v]) => [k, new Set(v)]),
+      ),
+      unattachedCodes: new Set(base.unattachedCodes),
+      coord: base.coord,
+      namedAfter: new Set(base.namedAfter),
+    }
+    for (const q of members) {
+      if (q === canonical) continue
+      const other = acc.get(q)!
+      if (!mergedAcc.kana && other.kana) mergedAcc.kana = other.kana
+      for (const id of other.lineIds) mergedAcc.lineIds.add(id)
+      for (const [lineId, codes] of other.codesByLine) {
+        const set = mergedAcc.codesByLine.get(lineId) ?? new Set<string>()
+        for (const c of codes) set.add(c)
+        mergedAcc.codesByLine.set(lineId, set)
+      }
+      for (const c of other.unattachedCodes) mergedAcc.unattachedCodes.add(c)
+    }
+    merged.set(canonical, mergedAcc)
+    void memberSet // (lint: 使わない変数の警告抑止)
+  }
+
   // US-040 / ADR 0011: 第 1 パス完了後, qualifier 付き code から「路線 → prefix 集合」を学習する。
   // この学習データは第 2 パスで unattached code を prefix で割り当てるのに使う。
+  // US-041 / ADR 0012: マージ済 (merged) の集約データから学習する。
   const prefixesByLine = new Map<string, Set<string>>()
-  for (const a of acc.values()) {
+  for (const a of merged.values()) {
     for (const [lineId, codes] of a.codesByLine) {
       let prefSet = prefixesByLine.get(lineId)
       if (!prefSet) {
@@ -440,7 +619,7 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     }
   }
 
-  return Array.from(acc.entries()).map(([stationQid, a]) => {
+  return Array.from(merged.entries()).map(([stationQid, a]) => {
     const lineIds = Array.from(a.lineIds)
     const filledLineIds = new Set<string>()
     for (const [lineId, codes] of a.codesByLine) {
