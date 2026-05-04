@@ -84,8 +84,8 @@ const LINE_B = {
 }
 
 const OPERATORS = [
-  { id: 'jr-tokai', name: 'JR東海', aliases: [] },
-  { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [] },
+  { id: 'jr-tokai', name: 'JR東海', aliases: [], kinds: ['train'] },
+  { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [], kinds: ['subway'] },
 ]
 
 beforeEach(() => {

@@ -2046,6 +2046,7 @@ describe('POST /api/admin/operators (admin 作成)', () => {
       id: 'jr-east',
       name: 'JR東日本',
       aliases: ['東日本旅客鉄道'],
+      kinds: [],
     })
     await prisma.operator.delete({ where: { id: 'jr-east' } })
   })
@@ -2091,8 +2092,67 @@ describe('PUT /api/admin/operators/:id', () => {
       id: 'tmp-update',
       name: 'New',
       aliases: ['alias1'],
+      kinds: [],
     })
     await prisma.operator.delete({ where: { id: 'tmp-update' } })
+  })
+
+  it('US-052: kinds JSON 配列を更新できる', async () => {
+    const email = 'op-put-kinds@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.operator.create({
+      data: { id: 'tmp-kinds', name: 'TmpKinds', aliases: '[]', kinds: '[]' },
+    })
+    const res = await putAdminOperator(cookie, 'tmp-kinds', {
+      name: 'TmpKinds',
+      aliases: '[]',
+      kinds: '["train","subway"]',
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.kinds).toEqual(['train', 'subway'])
+    // DB 側にも反映
+    const stored = await prisma.operator.findUnique({ where: { id: 'tmp-kinds' } })
+    expect(JSON.parse(stored!.kinds)).toEqual(['train', 'subway'])
+    await prisma.operator.delete({ where: { id: 'tmp-kinds' } })
+  })
+
+  it('US-052: kinds に不正な値が含まれていれば 400', async () => {
+    const email = 'op-put-kinds-bad@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.operator.create({
+      data: { id: 'tmp-kinds-bad', name: 'TmpKindsBad', aliases: '[]', kinds: '[]' },
+    })
+    const res = await putAdminOperator(cookie, 'tmp-kinds-bad', {
+      name: 'TmpKindsBad',
+      kinds: '["train","invalid_kind"]',
+    })
+    expect(res.status).toBe(400)
+    await prisma.operator.delete({ where: { id: 'tmp-kinds-bad' } })
+  })
+})
+
+describe('US-052: GET /api/operators で kinds が同梱される', () => {
+  it('seed 済 operator の kinds を取得できる', async () => {
+    const cookie = await signUpAndGetCookie('op-kinds-list@example.com', 'Test1234')
+    const res = await app.fetch(
+      new Request('http://localhost/api/operators', {
+        method: 'GET',
+        headers: { cookie },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      operators: Array<{ id: string; kinds: string[] }>
+    }
+    const jr = body.operators.find((o) => o.id === 'jr-tokai')
+    expect(jr?.kinds).toEqual(['train'])
+    const subway = body.operators.find((o) => o.id === 'nagoya-subway')
+    expect(subway?.kinds).toEqual(['subway'])
+    const linimo = body.operators.find((o) => o.id === 'linimo')
+    expect(linimo?.kinds).toEqual(['other'])
   })
 })
 

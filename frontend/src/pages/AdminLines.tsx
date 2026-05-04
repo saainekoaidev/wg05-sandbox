@@ -3,7 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useLines, type ApiLine, type LineKind } from '../lib/lines'
 import { useOperators } from '../lib/operators'
-import { applyKind, applyOperator, visibleOperatorIds } from '../lib/cascade'
+import { applyKind, applyOperator, visibleKinds, visibleOperatorIds } from '../lib/cascade'
 import { useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -175,7 +175,7 @@ export function AdminLines() {
     writeAdminLinesFilter({ operator: operatorFilter, kind: kindFilter })
   }, [operatorFilter, kindFilter])
 
-  // US-050: cascade 用データ
+  // US-050 / US-052: cascade 用データ (Operator.kinds を含む)
   const cascadeData = useMemo(
     () => ({
       lines: (linesState.lines ?? []).map((l) => ({
@@ -183,8 +183,12 @@ export function AdminLines() {
         kind: l.kind,
         operatorId: l.operatorId,
       })),
+      operators: (operatorsState.operators ?? []).map((o) => ({
+        id: o.id,
+        kinds: o.kinds,
+      })),
     }),
-    [linesState.lines],
+    [linesState.lines, operatorsState.operators],
   )
 
   function onChangeOperator(op: string) {
@@ -210,6 +214,11 @@ export function AdminLines() {
   const visibleOpIds = useMemo(
     () => visibleOperatorIds({ kind: kindFilter, line: '' }, cascadeData),
     [kindFilter, cascadeData],
+  )
+  // US-052: 種別 dropdown も operator.kinds で絞り込み
+  const visibleKindSet = useMemo(
+    () => visibleKinds({ operator: operatorFilter, line: '' }, cascadeData),
+    [operatorFilter, cascadeData],
   )
 
   const filteredLines = useMemo(() => {
@@ -367,10 +376,19 @@ export function AdminLines() {
                   onChange={(e) => onChangeKind(e.target.value as '' | LineKind)}
                 >
                   <option value="">すべて</option>
-                  <option value="train">電車</option>
-                  <option value="subway">地下鉄</option>
-                  <option value="bus">バス</option>
-                  <option value="other">その他</option>
+                  {(['train', 'subway', 'bus', 'other'] as const)
+                    .filter(
+                      (k) =>
+                        // 現在選択中の kind は常に表示 (cascade 整合外でもユーザの状態を維持)
+                        kindFilter === k ||
+                        visibleKindSet.size === 0 ||
+                        visibleKindSet.has(k),
+                    )
+                    .map((k) => (
+                      <option key={k} value={k}>
+                        {{ train: '電車', subway: '地下鉄', bus: 'バス', other: 'その他' }[k]}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div className="hint" style={{ alignSelf: 'center' }}>

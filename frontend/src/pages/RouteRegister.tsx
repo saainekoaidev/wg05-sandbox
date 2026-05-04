@@ -14,6 +14,7 @@ import {
   applyKind,
   applyLine,
   applyOperator,
+  visibleKinds,
   visibleLines,
   visibleOperatorIds,
   type CascadeData,
@@ -91,7 +92,7 @@ export function RouteRegister() {
   const linesState = useLines({ enabled: !!session })
   const operatorsState = useOperators({ enabled: !!session })
 
-  // US-050: cascade 用データ。区間ごとに operator/kind/line を連動。
+  // US-050 / US-052: cascade 用データ。区間ごとに operator/kind/line を連動。
   const cascadeData: CascadeData = useMemo(
     () => ({
       lines: (linesState.lines ?? []).map((l) => ({
@@ -99,8 +100,12 @@ export function RouteRegister() {
         kind: l.kind,
         operatorId: l.operatorId,
       })),
+      operators: (operatorsState.operators ?? []).map((o) => ({
+        id: o.id,
+        kinds: o.kinds,
+      })),
     }),
-    [linesState.lines],
+    [linesState.lines, operatorsState.operators],
   )
 
   function patchCascade(idx: number, fn: (s: { operator: string; kind: LineKind; line: string }) => { operator: string; kind: '' | LineKind; line: string }) {
@@ -419,10 +424,19 @@ export function RouteRegister() {
                       }
                       disabled={submitting}
                     >
-                      <option value="train">電車</option>
-                      <option value="subway">地下鉄</option>
-                      <option value="bus">バス</option>
-                      <option value="other">その他</option>
+                      {(['train', 'subway', 'bus', 'other'] as const)
+                        .filter((k) => {
+                          const set = visibleKinds(
+                            { operator: seg.operator, line: seg.lineId },
+                            cascadeData,
+                          )
+                          return seg.kind === k || set.size === 0 || set.has(k)
+                        })
+                        .map((k) => (
+                          <option key={k} value={k}>
+                            {{ train: '電車', subway: '地下鉄', bus: 'バス', other: 'その他' }[k]}
+                          </option>
+                        ))}
                     </select>
                   </div>
                   <div className="group">

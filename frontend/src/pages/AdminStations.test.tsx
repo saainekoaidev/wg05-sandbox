@@ -120,8 +120,9 @@ beforeEach(() => {
   useOperatorsMock.mockReset()
   useOperatorsMock.mockReturnValue({
     operators: [
-      { id: 'jr-tokai', name: 'JR東海', aliases: [] },
-      { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
+      { id: 'jr-tokai', name: 'JR東海', aliases: [], kinds: ['train'] },
+      { id: 'meitetsu', name: '名古屋鉄道', aliases: [], kinds: ['train'] },
+      { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [], kinds: ['subway'] },
     ],
     loading: false,
     error: null,
@@ -487,7 +488,12 @@ describe('AdminStations', () => {
       await waitFor(() => {
         const raw = sessionStorage.getItem('admin-stations-filter')
         expect(raw).not.toBeNull()
-        expect(JSON.parse(raw!)).toEqual({ kind: 'subway', line: '', operator: '' })
+        // US-052: subway は 1 社 (nagoya-subway) のみが運営 → 自動選択される
+        expect(JSON.parse(raw!)).toEqual({
+          kind: 'subway',
+          line: '',
+          operator: 'nagoya-subway',
+        })
       })
     })
 

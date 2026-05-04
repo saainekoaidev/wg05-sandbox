@@ -13,14 +13,19 @@ const prisma = new PrismaClient()
  * - id を `test-` プレフィックスで分離し、Wikidata 取り込みデータと衝突しないようにする
  * - 開発 DB に Wikidata 取り込みを実行している場合は、本フィクスチャと共存する
  */
-// US-049 / ADR 0019: Operator マスタを seed する。本番 migration の seed データと同期。
-const OPERATORS: Array<{ id: string; name: string; aliases: string }> = [
-  { id: 'jr-tokai', name: 'JR東海', aliases: '["東海旅客鉄道"]' },
-  { id: 'meitetsu', name: '名古屋鉄道', aliases: '["名鉄"]' },
-  { id: 'kintetsu', name: '近畿日本鉄道', aliases: '["近鉄"]' },
-  { id: 'nagoya-subway', name: '名古屋市交通局', aliases: '["名古屋市営地下鉄"]' },
-  { id: 'aonami', name: '名古屋臨海高速鉄道', aliases: '["あおなみ線"]' },
-  { id: 'linimo', name: '愛知高速交通', aliases: '["東部丘陵線","リニモ"]' },
+// US-049 / ADR 0019 + US-052: Operator マスタを seed する。本番 migration の seed データと同期。
+const OPERATORS: Array<{
+  id: string
+  name: string
+  aliases: string
+  kinds: string
+}> = [
+  { id: 'jr-tokai', name: 'JR東海', aliases: '["東海旅客鉄道"]', kinds: '["train"]' },
+  { id: 'meitetsu', name: '名古屋鉄道', aliases: '["名鉄"]', kinds: '["train"]' },
+  { id: 'kintetsu', name: '近畿日本鉄道', aliases: '["近鉄"]', kinds: '["train"]' },
+  { id: 'nagoya-subway', name: '名古屋市交通局', aliases: '["名古屋市営地下鉄"]', kinds: '["subway"]' },
+  { id: 'aonami', name: '名古屋臨海高速鉄道', aliases: '["あおなみ線"]', kinds: '["train"]' },
+  { id: 'linimo', name: '愛知高速交通', aliases: '["東部丘陵線","リニモ"]', kinds: '["other"]' },
 ]
 
 const LINES: Array<{
@@ -54,11 +59,11 @@ const STATIONS: Array<{
 ]
 
 async function main() {
-  // US-049: Operator マスタ seed (Line より先)
+  // US-049 / US-052: Operator マスタ seed (Line より先)
   for (const op of OPERATORS) {
     await prisma.operator.upsert({
       where: { id: op.id },
-      update: { name: op.name, aliases: op.aliases },
+      update: { name: op.name, aliases: op.aliases, kinds: op.kinds },
       create: op,
     })
   }

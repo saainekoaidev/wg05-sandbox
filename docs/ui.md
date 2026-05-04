@@ -41,6 +41,7 @@
 | US-049 | 運営会社マスタ + 駅 operator 分割 (admin) | S11 運営会社マスタ管理 | S09 路線マスタ管理 (operator dropdown), S10 駅マスタ管理 (operator フィルタ) |
 | US-050 | 運営会社 → 種別 → 路線 並び統一 + cascade 連動 | S04/S05 経路登録/編集, S07 駅マスタ参照, S09 路線マスタ管理, S10 駅マスタ管理 | (frontend/src/lib/cascade.ts に共通実装) |
 | US-051 | admin リンク並び替え + フィルタリセットボタン | S08 プロフィール設定 (admin リンク順), S09 路線マスタ管理 (リセット), S10 駅マスタ管理 (リセット) | - |
+| US-052 | Operator.kinds 紐付けで 種別 dropdown を operator 絞り込みに | S11 運営会社マスタ管理 (kinds 列 + checkbox UI), S04/S06/S07/S09/S10 (kind dropdown が operator 連動) | (frontend/src/lib/cascade.ts visibleKinds 更新) |
 
 ---
 

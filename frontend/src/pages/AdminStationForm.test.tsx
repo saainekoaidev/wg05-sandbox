@@ -115,8 +115,8 @@ beforeEach(() => {
   useOperatorsMock.mockReset()
   useOperatorsMock.mockReturnValue({
     operators: [
-      { id: 'jr-tokai', name: 'JR東海', aliases: [] },
-      { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
+      { id: 'jr-tokai', name: 'JR東海', aliases: [], kinds: ['train'] },
+      { id: 'meitetsu', name: '名古屋鉄道', aliases: [], kinds: ['train'] },
     ],
     loading: false,
     error: null,

@@ -413,6 +413,9 @@ const OperatorInput = z.object({
   name: z.string().min(1).max(80),
   /// JSON 配列文字列。空文字 or 省略時は "[]"。
   aliases: z.string().max(2000).optional(),
+  /// US-052: 運営する路線種別の JSON 配列文字列 (例: '["train","bus"]')。
+  /// 空文字 or 省略時は "[]"。
+  kinds: z.string().max(200).optional(),
 })
 const OperatorUpdate = OperatorInput.omit({ id: true })
 
@@ -429,6 +432,25 @@ function parseAliases(raw: string | null | undefined): string[] {
   return []
 }
 
+const VALID_KINDS = new Set(['train', 'subway', 'bus', 'other'])
+
+/// US-052: kinds JSON 文字列を検証して string 配列を返す。失敗時 null。
+function validateAndParseKinds(raw: string | undefined): string[] | null {
+  if (!raw) return []
+  try {
+    const a = JSON.parse(raw)
+    if (!Array.isArray(a)) return null
+    const out: string[] = []
+    for (const k of a) {
+      if (typeof k !== 'string' || !VALID_KINDS.has(k)) return null
+      if (!out.includes(k)) out.push(k)
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
 // 認証ユーザならだれでも一覧取得可 (Line/Station フォームの dropdown が叩く)。
 app.get('/api/operators', async (c) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers })
@@ -442,6 +464,7 @@ app.get('/api/operators', async (c) => {
       id: op.id,
       name: op.name,
       aliases: parseAliases(op.aliases),
+      kinds: parseAliases(op.kinds),
     })),
   })
 })
@@ -460,6 +483,7 @@ app.get('/api/admin/operators', async (c) => {
       id: op.id,
       name: op.name,
       aliases: parseAliases(op.aliases),
+      kinds: parseAliases(op.kinds),
       lineCount: op._count.lines,
       stationCount: op._count.stations,
     })),
@@ -491,12 +515,27 @@ app.post('/api/admin/operators', async (c) => {
   } catch {
     return c.json({ error: 'validation_failed', field: 'aliases' }, 400)
   }
+  // US-052: kinds 検証 (空文字は "[]")
+  const kindsParsed = validateAndParseKinds(parsed.data.kinds || '[]')
+  if (kindsParsed === null) {
+    return c.json({ error: 'validation_failed', field: 'kinds' }, 400)
+  }
   try {
     const created = await prisma.operator.create({
-      data: { id: parsed.data.id, name: parsed.data.name, aliases: aliases || '[]' },
+      data: {
+        id: parsed.data.id,
+        name: parsed.data.name,
+        aliases: aliases || '[]',
+        kinds: JSON.stringify(kindsParsed),
+      },
     })
     return c.json(
-      { id: created.id, name: created.name, aliases: parseAliases(created.aliases) },
+      {
+        id: created.id,
+        name: created.name,
+        aliases: parseAliases(created.aliases),
+        kinds: parseAliases(created.kinds),
+      },
       201,
     )
   } catch (e) {
@@ -535,15 +574,25 @@ app.put('/api/admin/operators/:id', async (c) => {
   } catch {
     return c.json({ error: 'validation_failed', field: 'aliases' }, 400)
   }
+  // US-052: kinds 検証
+  const kindsParsed = validateAndParseKinds(parsed.data.kinds || '[]')
+  if (kindsParsed === null) {
+    return c.json({ error: 'validation_failed', field: 'kinds' }, 400)
+  }
   try {
     const updated = await prisma.operator.update({
       where: { id },
-      data: { name: parsed.data.name, aliases: aliases || '[]' },
+      data: {
+        name: parsed.data.name,
+        aliases: aliases || '[]',
+        kinds: JSON.stringify(kindsParsed),
+      },
     })
     return c.json({
       id: updated.id,
       name: updated.name,
       aliases: parseAliases(updated.aliases),
+      kinds: parseAliases(updated.kinds),
     })
   } catch (e) {
     if ((e as { code?: string }).code === 'P2002') {
