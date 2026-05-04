@@ -26,6 +26,32 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
   other: 'tag tag-other',
 }
 
+// US-034: フィルタ保存キー。sessionStorage はタブ閉じで消えるためログアウト後に持ち越さない。
+const FILTER_KEY = 'admin-lines-filter'
+const VALID_KINDS = new Set(['', 'train', 'subway', 'bus', 'other'])
+
+function readAdminLinesFilter(): '' | LineKind {
+  try {
+    const raw = sessionStorage.getItem(FILTER_KEY)
+    if (raw === null) return ''
+    const parsed = JSON.parse(raw) as { kind?: unknown }
+    if (typeof parsed.kind === 'string' && VALID_KINDS.has(parsed.kind)) {
+      return parsed.kind as '' | LineKind
+    }
+  } catch {
+    // 不正値 → 空文字に倒す
+  }
+  return ''
+}
+
+function writeAdminLinesFilter(kind: '' | LineKind): void {
+  try {
+    sessionStorage.setItem(FILTER_KEY, JSON.stringify({ kind }))
+  } catch {
+    // ストレージ容量超過等は無視 (フィルタが復元されないだけで実害なし)
+  }
+}
+
 export function AdminLines() {
   const { data: session, isPending } = useSession()
   const navigate = useNavigate()
@@ -134,8 +160,14 @@ export function AdminLines() {
     [],
   )
 
-  // US-031: 種別フィルタ
-  const [kindFilter, setKindFilter] = useState<'' | LineKind>('')
+  // US-031 / US-034: 種別フィルタ。値は sessionStorage に保存し
+  // /admin/lines/new や /:id/edit から戻ってきたときに復元する。
+  const [kindFilter, setKindFilter] = useState<'' | LineKind>(() =>
+    readAdminLinesFilter(),
+  )
+  useEffect(() => {
+    writeAdminLinesFilter(kindFilter)
+  }, [kindFilter])
   const filteredLines = useMemo(() => {
     if (!linesState.lines) return null
     if (!kindFilter) return linesState.lines

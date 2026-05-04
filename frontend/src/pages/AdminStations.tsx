@@ -27,6 +27,37 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
   other: 'tag tag-other',
 }
 
+// US-034: フィルタ保存キー。sessionStorage は新規/編集画面に遷移しても残るが,
+// タブを閉じれば消えるためログアウト後に持ち越さない。
+const FILTER_KEY = 'admin-stations-filter'
+const VALID_KINDS = new Set(['', 'train', 'subway', 'bus', 'other'])
+
+type StoredFilter = { kind: '' | LineKind; line: string }
+
+function readAdminStationsFilter(): StoredFilter {
+  try {
+    const raw = sessionStorage.getItem(FILTER_KEY)
+    if (raw === null) return { kind: '', line: '' }
+    const parsed = JSON.parse(raw) as { kind?: unknown; line?: unknown }
+    const kind =
+      typeof parsed.kind === 'string' && VALID_KINDS.has(parsed.kind)
+        ? (parsed.kind as '' | LineKind)
+        : ''
+    const line = typeof parsed.line === 'string' ? parsed.line : ''
+    return { kind, line }
+  } catch {
+    return { kind: '', line: '' }
+  }
+}
+
+function writeAdminStationsFilter(f: StoredFilter): void {
+  try {
+    sessionStorage.setItem(FILTER_KEY, JSON.stringify(f))
+  } catch {
+    // 容量超過等は無視
+  }
+}
+
 export function AdminStations() {
   const { data: session, isPending } = useSession()
   const navigate = useNavigate()
@@ -120,10 +151,18 @@ export function AdminStations() {
 
   const reloadStations = () => setStationsTick((t) => t + 1)
 
-  // US-032: 種別 + 路線フィルタ
+  // US-032: 種別 + 路線フィルタ。US-034: 値は sessionStorage に保存し新規/編集
+  // から戻ってきたときに復元する。一覧 fetch は mount 時 useEffect で実行されるため
+  // 復元と同時に最新状態が表示される。
   const linesState = useLines({ enabled: isAdmin })
-  const [kindFilter, setKindFilter] = useState<'' | LineKind>('')
-  const [lineFilter, setLineFilter] = useState<string>('')
+  const initialFilter = useMemo(() => readAdminStationsFilter(), [])
+  const [kindFilter, setKindFilter] = useState<'' | LineKind>(
+    initialFilter.kind,
+  )
+  const [lineFilter, setLineFilter] = useState<string>(initialFilter.line)
+  useEffect(() => {
+    writeAdminStationsFilter({ kind: kindFilter, line: lineFilter })
+  }, [kindFilter, lineFilter])
 
   const filteredStations = useMemo(() => {
     if (!stations) return null
@@ -370,7 +409,7 @@ export function AdminStations() {
 
             {filteredStations && filteredStations.length > 0 && (
               <div className="table-wrap">
-                <table>
+                <table className="admin-stations-table">
                   <thead>
                     <tr>
                       <th>ID</th>
@@ -383,19 +422,16 @@ export function AdminStations() {
                   <tbody>
                     {filteredStations.map((station) => (
                       <tr key={station.id}>
-                        <td>
+                        <td className="admin-stn-id">
                           <code>{station.id}</code>
                         </td>
-                        <td>{station.name}</td>
-                        <td>{station.kana}</td>
-                        <td>
+                        <td className="admin-stn-name">{station.name}</td>
+                        <td className="admin-stn-kana">{station.kana}</td>
+                        <td className="admin-stn-lines">
                           {station.lines.length === 0 ? (
                             <span className="hint">未接続</span>
                           ) : (
-                            <div
-                              className="tag-row"
-                              style={{ gap: 8, flexWrap: 'wrap' }}
-                            >
+                            <div className="tag-row admin-stn-lines__row">
                               {station.lines.map((line) => (
                                 <span
                                   key={line.id}

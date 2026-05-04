@@ -399,9 +399,32 @@ tbody tr:hover { background: var(--blue-50); }
   font-size: 14px;
 }
 
+/* US-036: 駅マスタ管理 (S10) 一覧表のレイアウト調整。
+   駅名 / よみがな は 1 行強制 (折り返さない)。接続路線セルは flex-wrap で
+   タグが多いときだけ 2 行以上に広がる。接続路線セル幅は最小限に絞り,
+   タグ列が広すぎて駅名側が縦長になるのを防ぐ。 */
+.admin-stations-table .admin-stn-id,
+.admin-stations-table .admin-stn-name,
+.admin-stations-table .admin-stn-kana {
+  white-space: nowrap;
+}
+.admin-stations-table .admin-stn-lines {
+  /* タグ列は内容に応じて伸びるが, 過度に拡張しないよう最大幅を制限 */
+  max-width: 480px;
+}
+.admin-stations-table .admin-stn-lines__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 /* US-033: 駅マスタの新規/編集における路線セレクタ。
    各行 = チェックボックス + 種別タグ + 路線名 + 駅番号 input。
-   チェック列は最小幅 (チェックボックス本体程度)、駅番号 input は右側に固定幅で並ぶ。 */
+   チェック列は最小幅 (チェックボックス本体程度)、駅番号 input は右側に固定幅で並ぶ。
+   US-035: 路線名が「上 / 飯 / 田 / 線」のように 1 文字ずつ折り返されるのを防ぐため,
+   名前列を minmax(0, 1fr) で shrink 可能にし nowrap + ellipsis で 1 行表示する。
+   駅番号 input は 9em (CA68 等の短いコードに十分) に絞る。 */
 .line-picker {
   display: flex;
   flex-direction: column;
@@ -414,7 +437,7 @@ tbody tr:hover { background: var(--blue-50); }
 }
 .line-picker__row {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto minmax(0, 1fr) 9em;
   gap: 8px;
   align-items: center;
   padding: 4px 6px;
@@ -428,14 +451,19 @@ tbody tr:hover { background: var(--blue-50); }
 }
 .line-picker__name {
   font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .line-picker__code {
-  width: 12em;
+  /* grid セル幅 (9em) に従って横幅を取る */
+  width: 100%;
   padding: 4px 8px;
   font-size: 13px;
   font-family: var(--mono, ui-monospace, monospace);
   border: 1px solid var(--line);
   border-radius: 3px;
+  box-sizing: border-box;
 }
 .line-picker__code:disabled { background: #f3f4f6; color: #9ca3af; }
 
