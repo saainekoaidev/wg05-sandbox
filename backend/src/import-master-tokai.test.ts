@@ -360,14 +360,14 @@ describe('fetchStationsForLines', () => {
         station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
         stationLabel: { value: '名古屋駅' },
         stationCode: { value: 'CA68' },
-        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T1' },
         line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
       {
         station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA' },
         stationLabel: { value: '名古屋駅' },
         stationCode: { value: 'CC00' },
-        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T2' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T2' },
         line: { value: 'http://www.wikidata.org/entity/Q-T2' },
       },
     ]
@@ -381,19 +381,62 @@ describe('fetchStationsForLines', () => {
     expect(linkMap.get('Q-T2')).toBe('CC00')
   })
 
-  it('US-033: qualifier 無し stationCode は全 link 共通 fallback (まだ路線未確定)', async () => {
+  it('US-039: qualifier P518 付き stationCode も対応路線の link.code に格納 (千種パターン)', async () => {
     const fakeFetcher = async () => [
       {
-        station: { value: 'http://www.wikidata.org/entity/Q-FALLBACK' },
-        stationLabel: { value: '名古屋駅' },
-        // qualifier 無し code = どの路線か不明 → 全 link に同じ値を入れる
-        stationCode: { value: 'CA68' },
+        station: { value: 'http://www.wikidata.org/entity/Q-CHIKUSA' },
+        stationLabel: { value: '千種駅' },
+        stationCode: { value: 'H12' },
+        qLineByP518: { value: 'http://www.wikidata.org/entity/Q-HIGASHIYAMA' },
+        line: { value: 'http://www.wikidata.org/entity/Q-HIGASHIYAMA' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-CHIKUSA' },
+        stationLabel: { value: '千種駅' },
+        stationCode: { value: 'CF03' }, // qualifier 無し
+        line: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-CHUO', 'Q-HIGASHIYAMA'],
+      fakeFetcher as never,
+    )
+    expect(stations).toHaveLength(1)
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    // H12 は qualifier 付きで東山線、CF03 は unattached だが「未埋め lineLink が 1 (中央線)」なので
+    // ADR 0010 §2 により残り 1 lineLink へ自動割当
+    expect(linkMap.get('Q-HIGASHIYAMA')).toBe('H12')
+    expect(linkMap.get('Q-CHUO')).toBe('CF03')
+  })
+
+  it('US-039 / ADR 0010 §1: 単独路線駅 + qualifier 無し → 採用', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-KAMBARA' },
+        stationLabel: { value: '蒲原駅' },
+        stationCode: { value: 'CA11' }, // qualifier 無し
+        line: { value: 'http://www.wikidata.org/entity/Q-TOKAIDO' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-TOKAIDO'],
+      fakeFetcher as never,
+    )
+    expect(stations[0]!.links).toEqual([{ lineId: 'Q-TOKAIDO', code: 'CA11' }])
+  })
+
+  it('US-039 / ADR 0010 §3: 複数路線 + 全 unattached + 2 件以上 → ambiguous でスキップ', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-AMBIG' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'AA01' }, // qualifier 無し
         line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
       {
-        station: { value: 'http://www.wikidata.org/entity/Q-FALLBACK' },
-        stationLabel: { value: '名古屋駅' },
-        stationCode: { value: 'CA68' }, // 重複は dedup される
+        station: { value: 'http://www.wikidata.org/entity/Q-AMBIG' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'BB02' }, // qualifier 無し (もう1件)
         line: { value: 'http://www.wikidata.org/entity/Q-T2' },
       },
     ]
@@ -402,8 +445,36 @@ describe('fetchStationsForLines', () => {
       fakeFetcher as never,
     )
     const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
-    expect(linkMap.get('Q-T1')).toBe('CA68')
-    expect(linkMap.get('Q-T2')).toBe('CA68')
+    // どっちが T1 か T2 か断定できないので両方空文字
+    expect(linkMap.get('Q-T1')).toBe('')
+    expect(linkMap.get('Q-T2')).toBe('')
+  })
+
+  it('US-039: 完全 unattached 複数路線駅 (qualifier 一切無し + 2 路線) は安全側で空のまま', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-FULL' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'XY99' }, // qualifier 無し
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-FULL' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'XY99' }, // 同じ値が別 line 行で再出現 (Wikidata 特性)
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    // 未埋め lineLink == 2 件 + unattached == 1 件 → ADR 0010 §3 ambiguous → 両方空。
+    // (どちらの路線の駅番号か断定できないため、安全側で空文字。
+    //  人が編集しないと埋まらないが、これは Wikidata 側の qualifier 整備が追いつくまでの過渡的状態。)
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-T1')).toBe('')
+    expect(linkMap.get('Q-T2')).toBe('')
   })
 
   it('US-037: 電報略号 (カタカナ) は code から除外される', async () => {
@@ -438,7 +509,7 @@ describe('fetchStationsForLines', () => {
         station: { value: 'http://www.wikidata.org/entity/Q-S' },
         stationLabel: { value: '駅' },
         stationCode: { value: 'CC01' },
-        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T1' },
         line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
       {
@@ -446,7 +517,7 @@ describe('fetchStationsForLines', () => {
         station: { value: 'http://www.wikidata.org/entity/Q-S' },
         stationLabel: { value: '駅' },
         stationCode: { value: 'カカ' },
-        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T1' },
         line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
     ]
@@ -460,14 +531,14 @@ describe('fetchStationsForLines', () => {
         station: { value: 'http://www.wikidata.org/entity/Q-MULTI' },
         stationLabel: { value: '駅' },
         stationCode: { value: 'CC00' },
-        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T1' },
         line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
       {
         station: { value: 'http://www.wikidata.org/entity/Q-MULTI' },
         stationLabel: { value: '駅' },
         stationCode: { value: 'CA68' },
-        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T1' },
         line: { value: 'http://www.wikidata.org/entity/Q-T1' },
       },
     ]
