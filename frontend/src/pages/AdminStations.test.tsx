@@ -108,6 +108,12 @@ beforeEach(() => {
     reload: () => {},
   })
   vi.stubGlobal('fetch', fetchMock)
+  // US-034: テスト間でフィルタが残らないよう sessionStorage をクリア
+  try {
+    sessionStorage.clear()
+  } catch {
+    // jsdom 環境では常に成功する想定
+  }
 })
 
 afterEach(() => {
@@ -448,5 +454,47 @@ describe('AdminStations', () => {
     expect(
       screen.getByRole('link', { name: '路線マスタ管理' }),
     ).toHaveAttribute('href', '/admin/lines')
+  })
+
+  describe('US-034 フィルタ持続化 (sessionStorage)', () => {
+    it('種別フィルタを変更すると sessionStorage に保存される', async () => {
+      const user = userEvent.setup()
+      mockAdminInitialFetch([STATION_NAGOYA, STATION_GIFU])
+      renderAdminStations()
+      await screen.findByText('名古屋')
+
+      await user.selectOptions(screen.getByLabelText('種別'), 'subway')
+      await waitFor(() => {
+        const raw = sessionStorage.getItem('admin-stations-filter')
+        expect(raw).not.toBeNull()
+        expect(JSON.parse(raw!)).toEqual({ kind: 'subway', line: '' })
+      })
+    })
+
+    it('sessionStorage に保存済みの値があれば mount 時に復元', async () => {
+      sessionStorage.setItem(
+        'admin-stations-filter',
+        JSON.stringify({ kind: 'train', line: 'meitetsu' }),
+      )
+      mockAdminInitialFetch([STATION_NAGOYA, STATION_GIFU])
+      renderAdminStations()
+      await screen.findByText('名古屋')
+      // 初期値が pre-fill されている
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe(
+        'train',
+      )
+      expect((screen.getByLabelText('路線') as HTMLSelectElement).value).toBe(
+        'meitetsu',
+      )
+    })
+
+    it('不正な保存値は無視される (クラッシュしない)', async () => {
+      sessionStorage.setItem('admin-stations-filter', 'not-json{{{')
+      mockAdminInitialFetch([STATION_NAGOYA])
+      renderAdminStations()
+      await screen.findByText('名古屋')
+      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe('')
+      expect((screen.getByLabelText('路線') as HTMLSelectElement).value).toBe('')
+    })
   })
 })

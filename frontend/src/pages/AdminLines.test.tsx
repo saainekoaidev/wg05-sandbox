@@ -70,6 +70,12 @@ beforeEach(() => {
   })
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
+  // US-034: テスト間でフィルタが残らないよう sessionStorage をクリア
+  try {
+    sessionStorage.clear()
+  } catch {
+    // jsdom 環境では常に成功する想定
+  }
 })
 
 afterEach(() => {
@@ -395,5 +401,53 @@ describe('AdminLines', () => {
     } finally {
       confirmSpy.mockRestore()
     }
+  })
+
+  describe('US-034 フィルタ持続化 (sessionStorage)', () => {
+    it('種別フィルタを変更すると sessionStorage に保存される', async () => {
+      const user = userEvent.setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(ADMIN), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ lines: [LINE_A, LINE_B] }), {
+            status: 200,
+          }),
+        )
+      renderAdminLines()
+      await screen.findByText('JR東海道線')
+
+      await user.selectOptions(screen.getByLabelText('種別で絞り込み'), 'subway')
+      await waitFor(() => {
+        const raw = sessionStorage.getItem('admin-lines-filter')
+        expect(raw).not.toBeNull()
+        expect(JSON.parse(raw!)).toEqual({ kind: 'subway' })
+      })
+    })
+
+    it('sessionStorage に保存済みの値があれば mount 時に復元', async () => {
+      sessionStorage.setItem(
+        'admin-lines-filter',
+        JSON.stringify({ kind: 'subway' }),
+      )
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(ADMIN), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ lines: [LINE_A, LINE_B] }), {
+            status: 200,
+          }),
+        )
+      renderAdminLines()
+      await screen.findByText('名古屋市営地下鉄名城線')
+      // セレクトが地下鉄に復元されている
+      expect(
+        (screen.getByLabelText('種別で絞り込み') as HTMLSelectElement).value,
+      ).toBe('subway')
+      // フィルタの結果 train 路線 (JR東海道線) は表示されない
+      expect(screen.queryByText('JR東海道線')).not.toBeInTheDocument()
+    })
   })
 })
