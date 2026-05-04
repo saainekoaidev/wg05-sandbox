@@ -12,6 +12,8 @@ import {
   stripEkiSuffix,
   isLikelyStationNumber,
   codePrefix,
+  parseWktPoint,
+  haversineMeters,
   JR_LINE_QIDS,
   DENY_LINE_QIDS,
   OTHER_OPERATORS,
@@ -90,6 +92,36 @@ describe('inferKana early-return (US-027)', () => {
   it('空文字は空文字を返す', async () => {
     const { inferKana } = await import('../scripts/import-master-tokai.js')
     expect(await inferKana('')).toBe('')
+  })
+})
+
+describe('parseWktPoint / haversineMeters (US-041 / ADR 0012)', () => {
+  it('Wikidata の Point(lon lat) リテラルを解析', () => {
+    expect(parseWktPoint('Point(136.937 35.19)')).toEqual({
+      lon: 136.937,
+      lat: 35.19,
+    })
+    expect(parseWktPoint('Point(-122.4 37.77)')).toEqual({
+      lon: -122.4,
+      lat: 37.77,
+    })
+  })
+  it('不正値 / undefined は null', () => {
+    expect(parseWktPoint(undefined)).toBeNull()
+    expect(parseWktPoint('not a point')).toBeNull()
+    expect(parseWktPoint('')).toBeNull()
+  })
+  it('haversine 距離 (大曽根の 2 エンティティは 0m)', () => {
+    const a = { lon: 136.937, lat: 35.19 }
+    expect(haversineMeters(a, a)).toBe(0)
+  })
+  it('haversine 距離 (名古屋駅の半径 ≒ 数百m)', () => {
+    // Q110799384 (JR東海) と Q56611989 (地下鉄) の座標差
+    const jrtokai = { lon: 136.8809575, lat: 35.17075 }
+    const subway = { lon: 136.883889, lat: 35.171111 }
+    const d = haversineMeters(jrtokai, subway)
+    expect(d).toBeGreaterThan(100) // > 100m
+    expect(d).toBeLessThan(500) // < 500m
   })
 })
 
@@ -579,6 +611,157 @@ describe('fetchStationsForLines', () => {
     // prefix CF が両 lineLink にマッチするので (a) はスキップ → fallback (空)
     expect(linkMap.get('Q-T1')).toBe('')
     expect(linkMap.get('Q-T2')).toBe('')
+  })
+
+  it('US-041 / ADR 0012: P138 (named after) リンクで 2 Q-ID が 1 駅にマージされる (大曽根パターン)', async () => {
+    // Q110831202 (名城線) が P138 で Q872075 (JR/名鉄) を参照 → 同一物理駅としてマージ。
+    // 大曽根の CF04/ST06 を正しい lineLink に割り当てるため、他駅の qualifier 付き code で
+    // CF/ST prefix を学習させる (US-040 prefix routing 連動).
+    const fakeFetcher = async () => [
+      // 学習データ: 他駅の qualifier 付き CF / ST
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-LEARN-CHUO' },
+        stationLabel: { value: '高蔵寺' },
+        stationCode: { value: 'CF09' },
+        coord: { value: 'Point(137.0 35.25)' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+        line: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-LEARN-SETO' },
+        stationLabel: { value: '尾張瀬戸' },
+        stationCode: { value: 'ST20' },
+        coord: { value: 'Point(137.1 35.25)' },
+        qLineByP518: { value: 'http://www.wikidata.org/entity/Q-SETO' },
+        line: { value: 'http://www.wikidata.org/entity/Q-SETO' },
+      },
+      // Q872075 (canonical 候補): JR + 名鉄、両 unattached
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q872075' },
+        stationLabel: { value: '大曽根駅' },
+        stationCode: { value: 'CF04' },
+        coord: { value: 'Point(136.937 35.19)' },
+        line: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q872075' },
+        stationLabel: { value: '大曽根駅' },
+        stationCode: { value: 'ST06' },
+        coord: { value: 'Point(136.937 35.19)' },
+        line: { value: 'http://www.wikidata.org/entity/Q-SETO' },
+      },
+      // Q110831202 (名城線): P138 で Q872075 を参照
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q110831202' },
+        stationLabel: { value: '名古屋市営地下鉄大曽根駅' },
+        stationCode: { value: 'M12' },
+        coord: { value: 'Point(136.937 35.19)' },
+        namedAfter: { value: 'http://www.wikidata.org/entity/Q872075' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-MEIJO' },
+        line: { value: 'http://www.wikidata.org/entity/Q-MEIJO' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-CHUO', 'Q-SETO', 'Q-MEIJO'],
+      fakeFetcher as never,
+    )
+    // canonical = Q872075 (P138 で参照されているため)。Q110831202 は merged.
+    expect(stations).toHaveLength(3) // 大曽根 + 2 学習データ駅
+    const ozone = stations.find((s) => s.id === 'Q872075')!
+    expect(ozone).toBeDefined()
+    const linkMap = new Map(ozone.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-MEIJO')).toBe('M12')
+    expect(linkMap.get('Q-CHUO')).toBe('CF04')
+    expect(linkMap.get('Q-SETO')).toBe('ST06')
+    // Q110831202 が単独 station として残っていないこと
+    expect(stations.find((s) => s.id === 'Q110831202')).toBeUndefined()
+  })
+
+  it('US-041: 同名 + 座標距離 < 500m のエンティティもマージ (名古屋駅パターン)', async () => {
+    // 5 エンティティが半径 約 300m 以内に存在 → 1 駅にマージ
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-A' },
+        stationLabel: { value: '名古屋駅' },
+        stationCode: { value: 'NH36' },
+        coord: { value: 'Point(136.8838763 35.1695461)' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-MEITETSU' },
+        line: { value: 'http://www.wikidata.org/entity/Q-MEITETSU' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-B' },
+        stationLabel: { value: 'JR東海名古屋駅' },
+        stationCode: { value: 'CA68' },
+        coord: { value: 'Point(136.8809575 35.17075)' },
+        line: { value: 'http://www.wikidata.org/entity/Q-TOKAIDO' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-C' },
+        stationLabel: { value: '名古屋市営地下鉄名古屋駅' },
+        stationCode: { value: 'H08' },
+        coord: { value: 'Point(136.883889 35.171111)' },
+        qLineByP518: { value: 'http://www.wikidata.org/entity/Q-HIGASHIYAMA' },
+        line: { value: 'http://www.wikidata.org/entity/Q-HIGASHIYAMA' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-MEITETSU', 'Q-TOKAIDO', 'Q-HIGASHIYAMA'],
+      fakeFetcher as never,
+    )
+    // 全 3 エンティティが正規化後 "名古屋" + 座標 < 500m → 1 駅にマージ
+    expect(stations).toHaveLength(1)
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-MEITETSU')).toBe('NH36')
+    expect(linkMap.get('Q-TOKAIDO')).toBe('CA68')
+    expect(linkMap.get('Q-HIGASHIYAMA')).toBe('H08')
+  })
+
+  it('US-041: 同名でも座標距離が遠ければマージしない', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NAGOYA-A' },
+        stationLabel: { value: '中央駅' }, // 全く別の都市の同名駅を想定
+        stationCode: { value: 'A1' },
+        coord: { value: 'Point(136.88 35.17)' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OTHER' },
+        stationLabel: { value: '中央駅' },
+        stationCode: { value: 'B1' },
+        // 約 100km 離れた座標
+        coord: { value: 'Point(138.0 35.0)' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    expect(stations).toHaveLength(2)
+  })
+
+  it('US-041: 座標欠落エンティティは (b) でマージしない (P138 リンクのみ有効)', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-A' },
+        stationLabel: { value: '同名駅' },
+        // coord 欠落
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-B' },
+        stationLabel: { value: '同名駅' },
+        // こちらも coord 欠落
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    // 同名でも座標が無いので merge しない
+    expect(stations).toHaveLength(2)
   })
 
   it('US-039: 完全 unattached 複数路線駅 (qualifier 一切無し + 2 路線) は安全側で空のまま', async () => {
