@@ -881,6 +881,40 @@ describe('fetchStationsForLines', () => {
     expect(stations[0]!.links).toEqual([])
   })
 
+  it('US-044 / ADR 0015 §B: 単独路線 Q-ID + unattached がマージ後も保持される (あおなみ線名古屋駅パターン)', async () => {
+    // Q-AONAMI-NAGOYA: 単独路線 (Q-AONAMI-LINE のみ) + qualifier 無し AN01
+    // Q-JR-NAGOYA: JR路線 (Q-JR-LINE) + 駅番号無し
+    // 同名 + 座標近接でマージ → canonical = どちらか
+    // ADR 0015 §B により AN01 はマージ前に Q-AONAMI-NAGOYA の codesByLine[Q-AONAMI-LINE] に確定し,
+    // マージ後の名古屋駅 (canonical) でもあおなみ線=AN01 として保持される。
+    const fakeFetcher = async () => [
+      // あおなみ線 名古屋駅
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-AONAMI-NAGOYA' },
+        stationLabel: { value: 'あおなみ線名古屋駅' },
+        coord: { value: 'Point(136.8825 35.1686)' },
+        stationCode: { value: 'AN01' },
+        line: { value: 'http://www.wikidata.org/entity/Q-AONAMI-LINE' },
+      },
+      // JR 名古屋駅 (駅番号無し, JR路線のみ)
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-JR-NAGOYA' },
+        stationLabel: { value: 'JR東海名古屋駅' },
+        coord: { value: 'Point(136.8810 35.1707)' },
+        line: { value: 'http://www.wikidata.org/entity/Q-JR-LINE' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-AONAMI-LINE', 'Q-JR-LINE'],
+      fakeFetcher as never,
+    )
+    expect(stations).toHaveLength(1) // 同名 + 座標近接でマージ
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-AONAMI-LINE')).toBe('AN01') // マージ後も保持
+    // JR 路線は元々駅番号無しなので空のまま
+    expect(linkMap.get('Q-JR-LINE')).toBe('')
+  })
+
   it('US-039: 完全 unattached 複数路線駅 (qualifier 一切無し + 2 路線) は安全側で空のまま', async () => {
     const fakeFetcher = async () => [
       {
