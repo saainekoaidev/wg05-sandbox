@@ -89,7 +89,9 @@ test.describe('US-012 路線マスタ管理 (admin)', () => {
     await expect(page).toHaveURL('/admin/lines')
     await expect(page.getByText('路線を作成しました')).toBeVisible()
     await expect(page.getByText(initialName)).toBeVisible()
-    await expect(page.getByText('JR東海').first()).toBeVisible()
+    // US-050: operator フィルタ dropdown にも "JR東海" option があるので, 一覧の行に限定する
+    const newLineRow = page.locator('table tbody tr', { hasText: initialName })
+    await expect(newLineRow.getByText('JR東海')).toBeVisible()
 
     // 編集 (US-025: Link で /admin/lines/:id/edit に遷移)
     await page
