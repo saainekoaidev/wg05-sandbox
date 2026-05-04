@@ -9,7 +9,7 @@
 | 概要 | 管理者が駅マスタ (Station) と接続路線 (StationLine) を一括で管理する画面 |
 | URL | `/admin/stations` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-013, US-026, US-028, US-029, US-032, US-033 |
+| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036 |
 | 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持) |
 
 ---
@@ -51,6 +51,12 @@
 専用画面では路線一覧を `/api/lines` から取得し、各路線を **「チェックボックス + 路線名 + 駅番号 input」** の 1 行レイアウトで表示する (US-033)。チェックボックス列は本体程度の最小幅にし、駅番号入力枠を同じ行に並べる。チェックを外すと駅番号 input は値クリアされる。
 
 US-032: 駅マスタ管理 (S10) の一覧上部に「種別」「路線」フィルタを設置する (US-017 と同じ cascade: 種別を選ぶと路線セレクトが該当 kind に絞られる)。フィルタは AND 条件 (路線指定 = その路線に接続している駅のみ)。
+
+US-034: フィルタの選択値は sessionStorage (key: `admin-stations-filter`) に保存し, 新規/編集画面から戻ってきたときに復元する。一覧 fetch は mount 時 useEffect で実行されるため, 復元と同時に最新状態が表示される。
+
+US-035: 「接続路線 / 駅番号」入力リスト (.line-picker) の grid 列幅を `auto / auto / minmax(0,1fr) / 9em` とし, 路線名は `white-space: nowrap` で 1 行強制 + 必要なら `text-overflow: ellipsis` で省略, 駅番号 input は 9em (CA68 等の短いコードに十分) に制限する。
+
+US-036: 一覧表の駅名 / よみがなセルは `white-space: nowrap` で 1 行表示。接続路線セルは `tag-row` 内で `flex-wrap: wrap` を許容し, タグ数が増えたときだけ高さが広がるよう調整する。
 
 ---
 
