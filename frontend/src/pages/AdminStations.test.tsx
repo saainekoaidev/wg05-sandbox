@@ -7,6 +7,7 @@ import { AdminStations } from './AdminStations'
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
 const useLinesMock = vi.fn()
+const useOperatorsMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
@@ -24,6 +25,11 @@ vi.mock('../lib/lines', () => ({
     { value: 'other', label: 'その他' },
   ],
   useLines: (opts: { enabled?: boolean }) => useLinesMock(opts),
+}))
+
+// US-049: 運営会社マスタ (Operator) hook も同様にモック
+vi.mock('../lib/operators', () => ({
+  useOperators: (opts: { enabled?: boolean }) => useOperatorsMock(opts),
 }))
 
 function renderAdminStations(state?: { notice?: string }) {
@@ -80,6 +86,8 @@ const STATION_NAGOYA = {
   id: 'stn-nagoya',
   name: '名古屋',
   kana: 'なごや',
+  operatorId: 'jr-tokai',
+  operatorName: 'JR東海',
   lines: [
     { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA68' },
     { id: 'meitetsu', name: '名鉄名古屋本線', kind: 'train', code: 'NH36' },
@@ -90,6 +98,8 @@ const STATION_GIFU = {
   id: 'stn-gifu',
   name: '岐阜',
   kana: 'ぎふ',
+  operatorId: null,
+  operatorName: null,
   lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA74' }],
 }
 
@@ -103,6 +113,16 @@ beforeEach(() => {
   // useLines のデフォルト戻り値 (各テストで上書き可能)
   useLinesMock.mockReturnValue({
     lines: [LINE_TOKAIDO, LINE_MEITETSU],
+    loading: false,
+    error: null,
+    reload: () => {},
+  })
+  useOperatorsMock.mockReset()
+  useOperatorsMock.mockReturnValue({
+    operators: [
+      { id: 'jr-tokai', name: 'JR東海', aliases: [] },
+      { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
+    ],
     loading: false,
     error: null,
     reload: () => {},
@@ -467,7 +487,7 @@ describe('AdminStations', () => {
       await waitFor(() => {
         const raw = sessionStorage.getItem('admin-stations-filter')
         expect(raw).not.toBeNull()
-        expect(JSON.parse(raw!)).toEqual({ kind: 'subway', line: '' })
+        expect(JSON.parse(raw!)).toEqual({ kind: 'subway', line: '', operator: '' })
       })
     })
 

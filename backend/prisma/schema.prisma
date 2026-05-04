@@ -100,13 +100,29 @@ model RouteSegment {
   @@index([lineId])
 }
 
+/// 運営会社マスタ (US-049 / ADR 0019)。路線の所属事業者を表す。
+/// aliases は表記揺らぎ ("東海旅客鉄道" → "JR東海" 等) を JSON 配列で保持。
+model Operator {
+  id        String    @id
+  name      String    @unique
+  aliases   String    @default("[]")
+  lines     Line[]
+  stations  Station[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
 /// 路線マスタ (経路登録の路線セレクト + 駅マスタ検索のフィルタで参照)。
 /// id は手動採番のスラッグ または Wikidata Q-ID (US-011 取り込み分)。
 model Line {
   id           String         @id
   kind         String
   name         String         @unique
+  /// 互換維持の表示用文字列。Operator マスタ (operatorRef) との関係に置き換え予定。
   operator     String?
+  /// US-049 / ADR 0019: 運営会社マスタへの FK。
+  operatorId   String?
+  operatorRef  Operator?      @relation(fields: [operatorId], references: [id], onDelete: SetNull)
   /// 取り込み元 URI (例: https://www.wikidata.org/wiki/Q1129155)。手動作成は NULL。
   sourceUri    String?
   /// 取り込み実行時刻。手動作成は NULL。
@@ -116,17 +132,26 @@ model Line {
 }
 
 /// 駅 / 停留所マスタ。種別 (kind) は持たず、接続する Line(s) から派生表示する。
+/// US-049 / ADR 0019: 各 Station は単一 operator に属する (operator が異なれば別駅)。
 model Station {
   id         String        @id @default(cuid())
   name       String
   kana       String
+  /// US-049 / ADR 0019: 駅が属する運営会社。手動作成 (admin) では nullable。
+  operatorId String?
+  operatorRef Operator?    @relation(fields: [operatorId], references: [id], onDelete: SetNull)
   /// 取り込み元 URI。手動作成は NULL。docs/adr/0007-tokai-import-spec.md §5。
   sourceUri  String?
+  /// US-049: Wikidata 取り込みで複数 Station が同一 Q-ID を共有しうるため
+  /// (例: 大曽根 Q872075 が JR + 名鉄で 2 Station に分割), id とは別に保持。
+  sourceQid  String?
   /// 取り込み実行時刻。手動作成は NULL。
   importedAt DateTime?
   lineLinks  StationLine[]
 
   @@index([name])
+  @@index([operatorId, name])
+  @@index([sourceQid])
 }
 
 /// Station ↔ Line の M:N 中間テーブル。

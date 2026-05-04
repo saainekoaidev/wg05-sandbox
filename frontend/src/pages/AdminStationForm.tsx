@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, type ApiLine, type LineKind } from '../lib/lines'
+import { useOperators } from '../lib/operators'
 
 type ApiUser = {
   id: string
@@ -16,6 +17,9 @@ type AdminStation = {
   id: string
   name: string
   kana: string
+  /** US-049: 運営会社マスタ ID (任意)。 */
+  operatorId: string | null
+  operatorName: string | null
   /** US-033: 路線ごとに code を持つ */
   lines: { id: string; name: string; kind: LineKind; code: string }[]
 }
@@ -93,6 +97,7 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
 
   const isAdmin = me?.role === 'admin'
   const linesState = useLines({ enabled: isAdmin })
+  const operatorsState = useOperators({ enabled: isAdmin })
 
   // 編集モードでは GET /api/admin/stations/:id 単体取得 API は無いので、
   // GET /api/admin/stations 全件取得 + find で対象駅を pre-fill する。
@@ -102,6 +107,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
   const [formId, setFormId] = useState('')
   const [formName, setFormName] = useState('')
   const [formKana, setFormKana] = useState('')
+  /// US-049 / ADR 0019: 運営会社マスタ ID (任意)。
+  const [formOperatorId, setFormOperatorId] = useState('')
   // US-033: チェック済み lineId → 駅番号 code の Map。
   // チェックを外すと entry を削除し駅番号入力もクリアされる。
   const [formLineCodes, setFormLineCodes] = useState<Map<string, string>>(
@@ -134,6 +141,7 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
         setFormId(target.id)
         setFormName(target.name)
         setFormKana(target.kana)
+        setFormOperatorId(target.operatorId ?? '')
         const initialMap = new Map<string, string>()
         for (const l of target.lines) initialMap.set(l.id, l.code)
         setFormLineCodes(initialMap)
@@ -263,6 +271,7 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
       const body: Record<string, unknown> = {
         name: formName,
         kana: formKana,
+        operatorId: formOperatorId || null,
         lineLinks: Array.from(formLineCodes.entries()).map(([lineId, code]) => ({
           lineId,
           code,
@@ -509,6 +518,29 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
             maxLength={80}
             placeholder="例: なごや"
           />
+        </div>
+
+        <div className="group">
+          <label htmlFor="form-operatorId">運営会社</label>
+          <select
+            id="form-operatorId"
+            className={inputClass('operatorId')}
+            aria-invalid={formError?.field === 'operatorId' || undefined}
+            value={formOperatorId}
+            onChange={(e) => setFormOperatorId(e.target.value)}
+            disabled={submitting || !operatorsState.operators}
+          >
+            <option value="">— 未登録 —</option>
+            {operatorsState.operators?.map((op) => (
+              <option key={op.id} value={op.id}>
+                {op.name}
+              </option>
+            ))}
+          </select>
+          <div className="hint">
+            駅の運営会社を選択。同一駅名でも運営会社が異なれば別駅として扱います
+            (改札を出る乗換え = 別駅)。
+          </div>
         </div>
 
         <div className="group">

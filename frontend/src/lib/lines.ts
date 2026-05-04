@@ -22,6 +22,9 @@ export type ApiLine = {
   name: string
   kind: LineKind
   operator: string | null
+  /// US-049 / ADR 0019
+  operatorId: string | null
+  operatorName: string | null
   routeSegmentCount: number
   stationCount: number
 }

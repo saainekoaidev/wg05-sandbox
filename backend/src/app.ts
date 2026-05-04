@@ -395,6 +395,180 @@ app.get('/api/stations', async (c) => {
 })
 
 // =====================================================================
+// 運営会社マスタ (US-049 / ADR 0019)
+// =====================================================================
+
+const OperatorInput = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z0-9-]+$/, 'id_format'),
+  name: z.string().min(1).max(80),
+  /// JSON 配列文字列。空文字 or 省略時は "[]"。
+  aliases: z.string().max(2000).optional(),
+})
+const OperatorUpdate = OperatorInput.omit({ id: true })
+
+function parseAliases(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((s): s is string => typeof s === 'string')
+    }
+  } catch {
+    // ignore
+  }
+  return []
+}
+
+// 認証ユーザならだれでも一覧取得可 (Line/Station フォームの dropdown が叩く)。
+app.get('/api/operators', async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  if (!session) return c.json({ error: 'unauthorized' }, 401)
+
+  const operators = await prisma.operator.findMany({
+    orderBy: { name: 'asc' },
+  })
+  return c.json({
+    operators: operators.map((op) => ({
+      id: op.id,
+      name: op.name,
+      aliases: parseAliases(op.aliases),
+    })),
+  })
+})
+
+// 管理画面用: 件数情報も同梱
+app.get('/api/admin/operators', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const operators = await prisma.operator.findMany({
+    orderBy: { name: 'asc' },
+    include: { _count: { select: { lines: true, stations: true } } },
+  })
+  return c.json({
+    operators: operators.map((op) => ({
+      id: op.id,
+      name: op.name,
+      aliases: parseAliases(op.aliases),
+      lineCount: op._count.lines,
+      stationCount: op._count.stations,
+    })),
+  })
+})
+
+app.post('/api/admin/operators', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const parsed = OperatorInput.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+  const aliases = parsed.data.aliases ?? '[]'
+  // aliases が JSON 配列文字列であることを最低限検証 (空文字は "[]" 扱い)
+  try {
+    const a = JSON.parse(aliases || '[]')
+    if (!Array.isArray(a)) throw new Error('not array')
+  } catch {
+    return c.json({ error: 'validation_failed', field: 'aliases' }, 400)
+  }
+  try {
+    const created = await prisma.operator.create({
+      data: { id: parsed.data.id, name: parsed.data.name, aliases: aliases || '[]' },
+    })
+    return c.json(
+      { id: created.id, name: created.name, aliases: parseAliases(created.aliases) },
+      201,
+    )
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') {
+      return c.json({ error: 'duplicate' }, 409)
+    }
+    throw e
+  }
+})
+
+app.put('/api/admin/operators/:id', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const id = c.req.param('id')
+  const existing = await prisma.operator.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const parsed = OperatorUpdate.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: 'validation_failed', issues: parsed.error.flatten() },
+      400,
+    )
+  }
+  const aliases = parsed.data.aliases ?? '[]'
+  try {
+    const a = JSON.parse(aliases || '[]')
+    if (!Array.isArray(a)) throw new Error('not array')
+  } catch {
+    return c.json({ error: 'validation_failed', field: 'aliases' }, 400)
+  }
+  try {
+    const updated = await prisma.operator.update({
+      where: { id },
+      data: { name: parsed.data.name, aliases: aliases || '[]' },
+    })
+    return c.json({
+      id: updated.id,
+      name: updated.name,
+      aliases: parseAliases(updated.aliases),
+    })
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') {
+      return c.json({ error: 'duplicate' }, 409)
+    }
+    throw e
+  }
+})
+
+app.delete('/api/admin/operators/:id', async (c) => {
+  const adminGuard = await requireAdmin(c)
+  if (adminGuard) return adminGuard
+
+  const id = c.req.param('id')
+  const existing = await prisma.operator.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+
+  // 参照チェック: Line / Station から FK で参照されているなら 409。
+  const lineCount = await prisma.line.count({ where: { operatorId: id } })
+  const stationCount = await prisma.station.count({ where: { operatorId: id } })
+  if (lineCount > 0 || stationCount > 0) {
+    return c.json(
+      { error: 'in_use', lineCount, stationCount },
+      409,
+    )
+  }
+  await prisma.operator.delete({ where: { id } })
+  return c.body(null, 204)
+})
+
+// =====================================================================
 // 路線マスタ管理 (US-012, ADR 0006)
 // =====================================================================
 
@@ -424,9 +598,12 @@ const LineInput = z.object({
     .regex(/^[A-Za-z0-9._-]+$/, 'id_format'),
   name: z.string().min(1).max(80),
   kind: KindSchema,
+  /// 互換用の表示文字列。operatorId 指定時はサーバ側で Operator.name に上書き。
   operator: z
     .union([z.string().min(1).max(80), z.literal(''), z.null()])
     .optional(),
+  /// US-049 / ADR 0019: 運営会社マスタ ID。
+  operatorId: z.union([z.string().min(1).max(40), z.literal(''), z.null()]).optional(),
 })
 
 const LineUpdate = LineInput.omit({ id: true })
@@ -440,6 +617,7 @@ app.get('/api/lines', async (c) => {
     orderBy: [{ kind: 'asc' }, { name: 'asc' }],
     include: {
       _count: { select: { segments: true, stationLinks: true } },
+      operatorRef: { select: { id: true, name: true } },
     },
   })
   return c.json({
@@ -448,6 +626,9 @@ app.get('/api/lines', async (c) => {
       name: l.name,
       kind: l.kind,
       operator: l.operator,
+      // US-049: 運営会社マスタ参照
+      operatorId: l.operatorId,
+      operatorName: l.operatorRef?.name ?? null,
       // 管理画面で削除可否判定に使う件数情報も同梱する。
       routeSegmentCount: l._count.segments,
       stationCount: l._count.stationLinks,
@@ -473,7 +654,13 @@ app.post('/api/lines', async (c) => {
     )
   }
 
-  const operator = parsed.data.operator ? parsed.data.operator : null
+  const operatorId = parsed.data.operatorId ? parsed.data.operatorId : null
+  let operator = parsed.data.operator ? parsed.data.operator : null
+  if (operatorId) {
+    const op = await prisma.operator.findUnique({ where: { id: operatorId } })
+    if (!op) return c.json({ error: 'unknown_operator', operatorId }, 400)
+    operator = op.name // 表示用文字列を operator マスタに同期
+  }
   try {
     const created = await prisma.line.create({
       data: {
@@ -481,6 +668,7 @@ app.post('/api/lines', async (c) => {
         name: parsed.data.name,
         kind: parsed.data.kind,
         operator,
+        operatorId,
       },
     })
     return c.json(created, 201)
@@ -515,7 +703,13 @@ app.put('/api/lines/:id', async (c) => {
     )
   }
 
-  const operator = parsed.data.operator ? parsed.data.operator : null
+  const operatorId = parsed.data.operatorId ? parsed.data.operatorId : null
+  let operator = parsed.data.operator ? parsed.data.operator : null
+  if (operatorId) {
+    const op = await prisma.operator.findUnique({ where: { id: operatorId } })
+    if (!op) return c.json({ error: 'unknown_operator', operatorId }, 400)
+    operator = op.name
+  }
   try {
     const updated = await prisma.line.update({
       where: { id },
@@ -523,6 +717,7 @@ app.put('/api/lines/:id', async (c) => {
         name: parsed.data.name,
         kind: parsed.data.kind,
         operator,
+        operatorId,
       },
     })
     return c.json(updated)
@@ -592,6 +787,8 @@ const StationCreateInput = z.object({
     .optional(),
   name: z.string().min(1).max(50),
   kana: z.string().min(1).max(80),
+  /// US-049 / ADR 0019: 運営会社マスタ ID (任意)。
+  operatorId: z.union([z.string().min(1).max(40), z.literal(''), z.null()]).optional(),
   // 紐付ける Line とその路線における駅番号。空配列許容。
   lineLinks: z.array(LineLinkInput).max(50).default([]),
 })
@@ -599,18 +796,23 @@ const StationCreateInput = z.object({
 const StationUpdate = z.object({
   name: z.string().min(1).max(50),
   kana: z.string().min(1).max(80),
+  operatorId: z.union([z.string().min(1).max(40), z.literal(''), z.null()]).optional(),
   lineLinks: z.array(LineLinkInput).max(50).default([]),
 })
 
 // 管理画面用: 全駅の一覧 (lines に code 込み)
+// US-049: クエリ ?operatorId=xxx で絞り込み可。
 app.get('/api/admin/stations', async (c) => {
   const adminGuard = await requireAdmin(c)
   if (adminGuard) return adminGuard
 
+  const operatorIdFilter = c.req.query('operatorId') || undefined
   const stations = await prisma.station.findMany({
+    where: operatorIdFilter ? { operatorId: operatorIdFilter } : undefined,
     orderBy: { kana: 'asc' },
     include: {
       lineLinks: { include: { line: true } },
+      operatorRef: { select: { id: true, name: true } },
     },
   })
   return c.json({
@@ -618,6 +820,8 @@ app.get('/api/admin/stations', async (c) => {
       id: s.id,
       name: s.name,
       kana: s.kana,
+      operatorId: s.operatorId,
+      operatorName: s.operatorRef?.name ?? null,
       lines: s.lineLinks.map((ll) => ({
         id: ll.line.id,
         name: ll.line.name,
@@ -680,12 +884,19 @@ app.post('/api/admin/stations', async (c) => {
     return c.json({ error: 'unknown_line', lineId: missing }, 400)
   }
 
+  const operatorId = parsed.data.operatorId ? parsed.data.operatorId : null
+  if (operatorId) {
+    const op = await prisma.operator.findUnique({ where: { id: operatorId } })
+    if (!op) return c.json({ error: 'unknown_operator', operatorId }, 400)
+  }
+
   try {
     const created = await prisma.station.create({
       data: {
         ...(parsed.data.id ? { id: parsed.data.id } : {}),
         name: parsed.data.name,
         kana: parsed.data.kana,
+        operatorId,
         lineLinks: {
           create: lineIds.map((lineId) => ({
             lineId,
@@ -693,13 +904,18 @@ app.post('/api/admin/stations', async (c) => {
           })),
         },
       },
-      include: { lineLinks: { include: { line: true } } },
+      include: {
+        lineLinks: { include: { line: true } },
+        operatorRef: { select: { id: true, name: true } },
+      },
     })
     return c.json(
       {
         id: created.id,
         name: created.name,
         kana: created.kana,
+        operatorId: created.operatorId,
+        operatorName: created.operatorRef?.name ?? null,
         lines: created.lineLinks.map((ll) => ({
           id: ll.line.id,
           name: ll.line.name,
@@ -745,6 +961,12 @@ app.put('/api/admin/stations/:id', async (c) => {
     return c.json({ error: 'unknown_line', lineId: missing }, 400)
   }
 
+  const operatorId = parsed.data.operatorId ? parsed.data.operatorId : null
+  if (operatorId) {
+    const op = await prisma.operator.findUnique({ where: { id: operatorId } })
+    if (!op) return c.json({ error: 'unknown_operator', operatorId }, 400)
+  }
+
   // ADR 0006 §5: 駅名変更でも既存 RouteSegment.fromStation/toStation は追従させない。
   // 名称変更は Station.name のみに反映する。StationLine は deleteMany + create で全置換。
   const updated = await prisma.station.update({
@@ -752,6 +974,7 @@ app.put('/api/admin/stations/:id', async (c) => {
     data: {
       name: parsed.data.name,
       kana: parsed.data.kana,
+      operatorId,
       lineLinks: {
         deleteMany: {},
         create: lineIds.map((lineId) => ({
@@ -760,13 +983,18 @@ app.put('/api/admin/stations/:id', async (c) => {
         })),
       },
     },
-    include: { lineLinks: { include: { line: true } } },
+    include: {
+      lineLinks: { include: { line: true } },
+      operatorRef: { select: { id: true, name: true } },
+    },
   })
 
   return c.json({
     id: updated.id,
     name: updated.name,
     kana: updated.kana,
+    operatorId: updated.operatorId,
+    operatorName: updated.operatorRef?.name ?? null,
     lines: updated.lineLinks.map((ll) => ({
       id: ll.line.id,
       name: ll.line.name,

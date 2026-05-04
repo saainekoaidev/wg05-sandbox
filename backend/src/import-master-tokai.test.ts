@@ -859,7 +859,7 @@ describe('fetchStationsForLines', () => {
     expect(linkMap.has('Q11235139')).toBe(false)
   })
 
-  it('US-042: 座標欠落駅は alias の disambiguation ができないため当該 lineLink が空', async () => {
+  it('US-042 / US-049: 座標欠落駅は alias の disambiguation ができず, canonical 路線が解決できない行は station 自体取り込まない', async () => {
     const fakeFetcher = async () => [
       {
         station: { value: 'http://www.wikidata.org/entity/Q-NOCOORD' },
@@ -874,11 +874,9 @@ describe('fetchStationsForLines', () => {
       ['Q11235139', 'Q11527981'],
       fakeFetcher as never,
     )
-    // Q1190152 を canonical に解決できなかった → lineIds 空 → 駅すら取り込まれないか、
-    // 取り込まれても空 lineLink。ここでは「駅自体は acc に作られたが lineIds が空」なので
-    // links が空配列になる。
-    expect(stations).toHaveLength(1)
-    expect(stations[0]!.links).toEqual([])
+    // US-049 / ADR 0019: operator 別 split の前段で canonical line が解決できない行は
+    // operator が確定しないため station ごと skip される (Station.operatorId が必須なため)。
+    expect(stations).toHaveLength(0)
   })
 
   it('US-044 / ADR 0015 §B: 単独路線 Q-ID + unattached がマージ後も保持される (あおなみ線名古屋駅パターン)', async () => {

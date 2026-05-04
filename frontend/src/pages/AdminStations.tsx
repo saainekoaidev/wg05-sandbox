@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useLines, type LineKind } from '../lib/lines'
+import { useOperators } from '../lib/operators'
 import { useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -16,6 +17,9 @@ type AdminStation = {
   id: string
   name: string
   kana: string
+  /** US-049: 運営会社マスタ ID (任意)。 */
+  operatorId: string | null
+  operatorName: string | null
   /** US-033: 路線ごとに code (駅番号) を持つ */
   lines: { id: string; name: string; kind: LineKind; code: string }[]
 }
@@ -32,21 +36,26 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
 const FILTER_KEY = 'admin-stations-filter'
 const VALID_KINDS = new Set(['', 'train', 'subway', 'bus', 'other'])
 
-type StoredFilter = { kind: '' | LineKind; line: string }
+type StoredFilter = { kind: '' | LineKind; line: string; operator: string }
 
 function readAdminStationsFilter(): StoredFilter {
   try {
     const raw = sessionStorage.getItem(FILTER_KEY)
-    if (raw === null) return { kind: '', line: '' }
-    const parsed = JSON.parse(raw) as { kind?: unknown; line?: unknown }
+    if (raw === null) return { kind: '', line: '', operator: '' }
+    const parsed = JSON.parse(raw) as {
+      kind?: unknown
+      line?: unknown
+      operator?: unknown
+    }
     const kind =
       typeof parsed.kind === 'string' && VALID_KINDS.has(parsed.kind)
         ? (parsed.kind as '' | LineKind)
         : ''
     const line = typeof parsed.line === 'string' ? parsed.line : ''
-    return { kind, line }
+    const operator = typeof parsed.operator === 'string' ? parsed.operator : ''
+    return { kind, line, operator }
   } catch {
-    return { kind: '', line: '' }
+    return { kind: '', line: '', operator: '' }
   }
 }
 
@@ -155,19 +164,31 @@ export function AdminStations() {
   // から戻ってきたときに復元する。一覧 fetch は mount 時 useEffect で実行されるため
   // 復元と同時に最新状態が表示される。
   const linesState = useLines({ enabled: isAdmin })
+  const operatorsState = useOperators({ enabled: isAdmin })
   const initialFilter = useMemo(() => readAdminStationsFilter(), [])
   const [kindFilter, setKindFilter] = useState<'' | LineKind>(
     initialFilter.kind,
   )
   const [lineFilter, setLineFilter] = useState<string>(initialFilter.line)
+  /// US-049: 運営会社フィルタ。
+  const [operatorFilter, setOperatorFilter] = useState<string>(
+    initialFilter.operator,
+  )
   useEffect(() => {
-    writeAdminStationsFilter({ kind: kindFilter, line: lineFilter })
-  }, [kindFilter, lineFilter])
+    writeAdminStationsFilter({
+      kind: kindFilter,
+      line: lineFilter,
+      operator: operatorFilter,
+    })
+  }, [kindFilter, lineFilter, operatorFilter])
 
   const filteredStations = useMemo(() => {
     if (!stations) return null
-    if (!kindFilter && !lineFilter) return stations
+    if (!kindFilter && !lineFilter && !operatorFilter) return stations
     return stations.filter((s) => {
+      if (operatorFilter) {
+        if (s.operatorId !== operatorFilter) return false
+      }
       if (lineFilter) {
         if (!s.lines.some((l) => l.id === lineFilter)) return false
       }
@@ -176,7 +197,7 @@ export function AdminStations() {
       }
       return true
     })
-  }, [stations, kindFilter, lineFilter])
+  }, [stations, kindFilter, lineFilter, operatorFilter])
 
   const [banner, setBanner] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -396,6 +417,21 @@ export function AdminStations() {
                     ))}
                 </select>
               </div>
+              <div className="group group--narrow">
+                <label htmlFor="admin-stns-operator">運営会社</label>
+                <select
+                  id="admin-stns-operator"
+                  value={operatorFilter}
+                  onChange={(e) => setOperatorFilter(e.target.value)}
+                >
+                  <option value="">すべての会社</option>
+                  {(operatorsState.operators ?? []).map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="hint" style={{ alignSelf: 'center' }}>
                 {filteredStations?.length ?? 0} / {stations.length} 件
               </div>
@@ -415,6 +451,7 @@ export function AdminStations() {
                       <th>ID</th>
                       <th>駅名</th>
                       <th>よみがな</th>
+                      <th>運営会社</th>
                       <th>接続路線 / 駅番号</th>
                       <th className="col-actions">操作</th>
                     </tr>
@@ -427,6 +464,7 @@ export function AdminStations() {
                         </td>
                         <td className="admin-stn-name">{station.name}</td>
                         <td className="admin-stn-kana">{station.kana}</td>
+                        <td>{station.operatorName ?? '—'}</td>
                         <td className="admin-stn-lines">
                           {station.lines.length === 0 ? (
                             <span className="hint">未接続</span>
