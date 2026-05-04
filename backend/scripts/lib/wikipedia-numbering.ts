@@ -246,16 +246,55 @@ function cleanupCell(cell: string): string {
   return s.trim()
 }
 
-/** [[A|B]] → B / [[A]] → A / 普通文字列 → そのまま */
+/** [[A|B]] → B / [[A]] → A / 普通文字列 → そのまま。`#fragment` は除去。 */
 function extractWikilinkDisplay(s: string): string {
-  return s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target, label) =>
-    (label ?? target).trim(),
-  )
+  return s.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target, label) => {
+    // label が無ければ target を表示 (target の `#fragment` は除去)
+    const display = label ?? (target as string).split('#')[0]
+    return (display ?? '').trim()
+  })
 }
 
-/** Station 名正規化 (Wikidata 取り込み側と整合させるための簡易版) */
+/**
+ * 取り込み側 (import-master-tokai.ts の normalizeStationName) と同じ前処理を行うため
+ * のプレフィックスパターン。DB 駅名は事業者プレフィックス + 末尾「駅」が剥がれた形で
+ * 保存されているので, Wikipedia 由来の駅名にも同じ正規化を適用する必要がある。
+ *
+ * import-master-tokai.ts の NAME_PREFIX_PATTERNS と意図的に同期している。
+ * (循環 import を避けるためここに複製)
+ */
+const NAME_PREFIX_PATTERNS: ReadonlyArray<RegExp> = [
+  /^JR東海(交通事業)?/,
+  /^JR西日本/,
+  /^名古屋鉄道/,
+  /^名鉄/,
+  /^名古屋市営地下鉄/,
+  /^名古屋市/,
+  /^近畿日本鉄道/,
+  /^近鉄/,
+  /^あおなみ線/,
+  /^名古屋臨海高速鉄道/,
+  /^東部丘陵線/,
+  /^愛知高速交通/,
+]
+
+/**
+ * Station 名正規化。Wikidata 取り込み側 (`normalizeStationName`) と挙動を揃える:
+ * 事業者プレフィックスを剥がし, 末尾「駅」も除去。
+ *
+ * 例:
+ *   "近鉄名古屋駅" → "名古屋"
+ *   "JR東海名古屋駅" → "名古屋"
+ *   "中京競馬場前駅" → "中京競馬場前"
+ *   "名古屋駅" → "名古屋"
+ */
 export function normalizeWikipediaStationName(rawName: string): string {
-  return rawName.trim().replace(/駅$/, '').trim()
+  let name = rawName.trim()
+  for (const re of NAME_PREFIX_PATTERNS) {
+    name = name.replace(re, '')
+  }
+  name = name.replace(/駅$/, '').trim()
+  return name || rawName.trim()
 }
 
 /**
