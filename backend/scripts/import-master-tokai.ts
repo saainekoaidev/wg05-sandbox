@@ -972,6 +972,11 @@ async function main() {
     `  Stations: created ${stationRes.created} / updated ${stationRes.updated} / StationLine ${stationRes.links}`,
   )
 
+  // US-045 / ADR 0016: 国土数値情報 N02 (鉄道) GeoJSON で補完取り込み (キャッシュがあれば)
+  // eslint-disable-next-line no-console
+  console.log('\nSupplementing with 国土数値情報 N02 (US-045)...')
+  await supplementWithN02()
+
   // US-044 / ADR 0015 §C: 駅番号未付番の lineLink を audit レポートとして出力する。
   // eslint-disable-next-line no-console
   console.log('\nWriting audit report (US-044)...')
@@ -980,6 +985,134 @@ async function main() {
   // eslint-disable-next-line no-console
   console.log(
     `\nDone in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`,
+  )
+}
+
+/**
+ * US-045 / ADR 0016: 国土数値情報 N02 GeoJSON キャッシュを読み, Wikidata 取り込み済の
+ * Station と突合して補完する。キャッシュが空なら警告を出してスキップ (Wikidata 取り込み
+ * 自体は既に完了している前提)。
+ */
+async function supplementWithN02(): Promise<void> {
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const cacheDir = path.join(here, 'data', 'n02')
+
+  const { loadN02Stations, planN02Merge } = await import('./lib/n02.js')
+  const n02Stations = await loadN02Stations(cacheDir)
+  if (n02Stations.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      '  N02 GeoJSON cache is empty. Skipping (see backend/scripts/data/n02/README.md for download steps).',
+    )
+    return
+  }
+  // eslint-disable-next-line no-console
+  console.log(`  N02 stations loaded: ${n02Stations.length}`)
+
+  // Wikidata 取り込み済 Station + Line を取得 (sourceUri NOT NULL のもののみ)
+  const stations = await prisma.station.findMany({
+    where: { sourceUri: { not: null } },
+  })
+  const lines = await prisma.line.findMany({
+    where: { sourceUri: { not: null } },
+  })
+
+  // ADR 0016 §C 突合: Wikidata Station の座標は schema に持っていないため, sourceUri から
+  // Q-ID を抽出して Wikidata 由来の coord を再取得する… のは重いので, ここでは「N02 駅と
+  // 名前一致 → 位置近接」を緩和して名前のみで判定する。座標は新規駅追加時に N02 側を採用。
+  // (Wikidata 駅の座標は import 時に acc.coord で持っていたが Station model には保存していない)
+  const stationsLite = stations.map((s) => ({
+    id: s.id,
+    name: s.name,
+    lon: null as number | null,
+    lat: null as number | null,
+  }))
+  const linesLite = lines.map((l) => ({
+    id: l.id,
+    name: l.name,
+    operator: l.operator ?? null,
+  }))
+
+  const actions = planN02Merge(n02Stations, stationsLite, linesLite)
+
+  // 注: Wikidata Station に座標が無いため, planN02Merge は座標突合をスキップして
+  // 全件 create-station アクションを返してしまう。これでは既存駅と二重登録になる。
+  // 仕様: 既存 Station と name 完全一致するものは attach-line に振り直す。
+  const stationByName = new Map<string, string>() // name -> id (重複は最初を採用)
+  for (const s of stationsLite) {
+    if (!stationByName.has(s.name)) stationByName.set(s.name, s.id)
+  }
+  const refined: typeof actions = []
+  const seenAttach = new Set<string>()
+  for (const a of actions) {
+    if (a.type === 'create-station') {
+      const existingId = stationByName.get(a.name)
+      if (existingId) {
+        const key = `${existingId}|${a.lineId}`
+        if (!seenAttach.has(key)) {
+          seenAttach.add(key)
+          refined.push({
+            type: 'attach-line',
+            stationId: existingId,
+            lineId: a.lineId,
+          })
+        }
+      } else {
+        refined.push(a)
+      }
+    } else {
+      const key = `${a.stationId}|${a.lineId}`
+      if (!seenAttach.has(key)) {
+        seenAttach.add(key)
+        refined.push(a)
+      }
+    }
+  }
+
+  // DB 反映
+  let attached = 0
+  let createdStations = 0
+  let createdLinks = 0
+  const importedAt = new Date()
+  for (const a of refined) {
+    if (a.type === 'attach-line') {
+      const existing = await prisma.stationLine.findUnique({
+        where: {
+          stationId_lineId: { stationId: a.stationId, lineId: a.lineId },
+        },
+      })
+      if (!existing) {
+        await prisma.stationLine.create({
+          data: {
+            stationId: a.stationId,
+            lineId: a.lineId,
+            // N02 には駅番号が無いため code は空文字 (Wikidata 由来分はそのまま保持される)
+            code: '',
+          },
+        })
+        attached++
+      }
+    } else {
+      const created = await prisma.station.create({
+        data: {
+          name: a.name,
+          kana: '',
+          sourceUri: a.sourceUri,
+          importedAt,
+          lineLinks: { create: [{ lineId: a.lineId, code: '' }] },
+        },
+      })
+      createdStations++
+      createdLinks++
+      // 後続の同名 N02 駅 attach のため反映
+      stationByName.set(created.name, created.id)
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `  N02 supplement: attached lineLinks=${attached}, new stations=${createdStations} (with ${createdLinks} lineLinks)`,
   )
 }
 

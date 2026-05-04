@@ -49,3 +49,8 @@ backend/prisma/dev.db*
 playwright-report/
 test-results/
 /playwright/.cache/
+
+# US-045 / ADR 0016: 国土数値情報 N02 GeoJSON のローカルキャッシュ。サイズが大きく
+# 国交省ライセンス再配布の都合もあるため git に含めない。README の手順で各自取得。
+backend/scripts/data/n02/*.geojson
+backend/scripts/data/n02/*.zip
