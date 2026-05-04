@@ -333,10 +333,12 @@ export async function fetchStationsForLines(
   const lineVals = lineIds.map((q) => `wd:${q}`).join(' ')
   const prefVals = PREF_QIDS.map((q) => `wd:${q}`).join(' ')
   // 駅情報は重複しがち (P81 が複数あり, 4県内駅で複数県マッチ等)。SELECT 後にアプリ層で集約する。
-  // US-033 / ADR 0008: P296 は statement node + qualifier P81 (路線対応) で取得し, 駅×路線粒度の
-  // 駅番号 (StationLine.code) として割り当てる。qualifier 無しは全 lineLink 共通の値として fallback。
+  // US-033 / ADR 0008: P296 は statement node + qualifier (路線対応) で取得し, 駅×路線粒度の
+  // 駅番号 (StationLine.code) として割り当てる。
+  // US-039 / ADR 0010: 路線対応 qualifier は Wikidata 上で P81 と P518 の両方が使われる
+  // (例: 千種駅 H12 は pq:P518 = 東山線)。両方 OPTIONAL で取得し、どちらかでも該当すれば採用する。
   const query = `
-SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine ?line WHERE {
+SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qLineByP518 ?line WHERE {
   VALUES ?targetLine { ${lineVals} }
   VALUES ?pref { ${prefVals} }
   ?station wdt:P81 ?targetLine ;
@@ -347,7 +349,8 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine 
   OPTIONAL {
     ?station p:P296 ?codeStmt .
     ?codeStmt ps:P296 ?stationCode .
-    OPTIONAL { ?codeStmt pq:P81 ?qualifierLine . }
+    OPTIONAL { ?codeStmt pq:P81  ?qLineByP81  . }
+    OPTIONAL { ?codeStmt pq:P518 ?qLineByP518 . }
   }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "ja,en". }
 }
@@ -363,7 +366,7 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine 
     lineIds: Set<string>
     /** (station, line) ペア → code 候補集合。"/" 結合前の状態。 */
     codesByLine: Map<string, Set<string>>
-    /** qualifier P81 が無い code (どの路線か不明) の集合。最後に全 lineId へ広げる fallback。 */
+    /** qualifier 無し or qualifier が対象外路線の code 集合 */
     unattachedCodes: Set<string>
   }
   const acc = new Map<string, Acc>()
@@ -389,16 +392,23 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine 
     const codeVal = r.stationCode?.value
     // US-037 / ADR 0009: 電報略号 (カタカナ表記の旧国鉄識別子) は駅番号と区別して除外する
     if (codeVal && isLikelyStationNumber(codeVal)) {
-      const qLine = r.qualifierLine?.value
-        ? qidFromUri(r.qualifierLine.value)
+      // US-039 / ADR 0010: P81 / P518 のどちらかが取り込み対象路線を指していれば採用
+      const qP81 = r.qLineByP81?.value ? qidFromUri(r.qLineByP81.value) : null
+      const qP518 = r.qLineByP518?.value
+        ? qidFromUri(r.qLineByP518.value)
         : null
-      if (qLine && targetSet.has(qLine)) {
-        // qualifier が指す路線が取り込み対象なら、その (station, line) 限定の code として登録
+      const qLine =
+        qP81 && targetSet.has(qP81)
+          ? qP81
+          : qP518 && targetSet.has(qP518)
+            ? qP518
+            : null
+      if (qLine) {
         const set = a.codesByLine.get(qLine) ?? new Set<string>()
         set.add(codeVal)
         a.codesByLine.set(qLine, set)
       } else {
-        // qualifier 無し or qualifier が対象外路線 → 全 lineLink の fallback
+        // qualifier 無し or qualifier が対象外路線
         a.unattachedCodes.add(codeVal)
       }
     }
@@ -406,10 +416,38 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine 
 
   return Array.from(acc.entries()).map(([stationQid, a]) => {
     const lineIds = Array.from(a.lineIds)
+    // ADR 0010 のロジック: 未埋め lineLink (qualifier 付き code が 1 件も入っていない) を集計
+    const filledLineIds = new Set<string>()
+    for (const [lineId, codes] of a.codesByLine) {
+      if (codes.size > 0) filledLineIds.add(lineId)
+    }
+    const unfilledLineIds = lineIds.filter((id) => !filledLineIds.has(id))
+    const unattached = Array.from(a.unattachedCodes)
+
+    /** ある lineId の code を組み立てる (qualifier 付き分のみ) */
+    const baseCode = (lineId: string): Set<string> =>
+      new Set<string>(a.codesByLine.get(lineId) ?? [])
+
+    let unattachedDisposition: Map<string, Set<string>> | null = null
+    if (unattached.length > 0) {
+      if (lineIds.length === 1) {
+        // ADR 0010 §1: 単独路線駅 → unattached を全部その lineLink へ
+        unattachedDisposition = new Map([[lineIds[0]!, new Set(unattached)]])
+      } else if (unfilledLineIds.length === 1) {
+        // ADR 0010 §2: 未埋め lineLink が 1 件 → unattached を残り 1 lineLink に集約
+        unattachedDisposition = new Map([
+          [unfilledLineIds[0]!, new Set(unattached)],
+        ])
+      } else {
+        // ADR 0010 §3: 未埋め lineLink ≥ 2 + unattached ≥ 1 → ambiguous → スキップ
+        unattachedDisposition = null
+      }
+    }
+
     const links = lineIds.map((lineId) => {
-      const set = new Set<string>(a.codesByLine.get(lineId) ?? [])
-      // qualifier 無し code は「どの路線か断定できない」ため全 link に同じ値を流し込む。
-      for (const c of a.unattachedCodes) set.add(c)
+      const set = baseCode(lineId)
+      const extra = unattachedDisposition?.get(lineId)
+      if (extra) for (const c of extra) set.add(c)
       const sorted = Array.from(set).sort()
       return { lineId, code: sorted.join('/') }
     })
