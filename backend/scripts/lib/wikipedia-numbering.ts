@@ -186,17 +186,19 @@ function parseTableRows(table: string): string[][] {
     const line = raw.trim()
     if (line.startsWith('{|') || line === '|}') continue
     if (line.startsWith('|-')) {
-      // 行区切り: 直前の current が非空なら push (最初の行も拾うため inRow flag は使わない)
+      // 行区切り: 直前の current が非空なら push
       if (current.length > 0) rows.push(current)
       current = []
       continue
     }
+    // `!` (ヘッダセル) と `|` (データセル) を両方データとして扱う。
+    // 路線記事の駅一覧では駅番号がヘッダセル (`!CA68`) に置かれることがあるため。
     if (line.startsWith('!')) {
-      // ヘッダ行は無視 (データのみ抽出)
-      continue
-    }
-    if (line.startsWith('|') && !line.startsWith('|-')) {
-      // 1 行内に `||` で複数セル
+      const stripped = line.replace(/^!/, '').trim()
+      // 1 行内に `!!` で複数セル
+      const cells = stripped.split('!!').map((cell) => cleanupCell(cell))
+      current.push(...cells)
+    } else if (line.startsWith('|') && !line.startsWith('|-')) {
       const stripped = line.replace(/^\|/, '').trim()
       const cells = stripped.split('||').map((cell) => cleanupCell(cell))
       current.push(...cells)
@@ -215,7 +217,6 @@ function parseTableRows(table: string): string[][] {
 function cleanupCell(cell: string): string {
   let s = cell
   // attribute prefix (style="..." | value) を切り落とす
-  // 厳密ではなく, attribute らしいキーワードを含む場合は最初の `|` で切る
   if (
     /=/.test(s) &&
     /style|class|colspan|rowspan|align|scope/i.test(s.split('|')[0] ?? '')
@@ -226,13 +227,22 @@ function cleanupCell(cell: string): string {
   s = s.trim()
   // wikilink を表示テキストに展開
   s = extractWikilinkDisplay(s)
+  // テンプレート {{...}} を除去 (簡易版: ネスト未対応)
+  // 例: "[[名古屋駅]] {{JR特定都区市内|名}}" → "名古屋駅"
+  let prev = ''
+  while (prev !== s) {
+    prev = s
+    s = s.replace(/\{\{[^{}]*\}\}/g, '')
+  }
   // ref タグ等を除去
   s = s.replace(/<ref[\s\S]*?<\/ref>/g, '')
   s = s.replace(/<ref[^>]*\/>/g, '')
   // br タグを空白に
   s = s.replace(/<br\s*\/?>/g, ' ')
-  // 末尾の HTML タグ全般を除去
+  // 残った HTML タグ
   s = s.replace(/<[^>]+>/g, '')
+  // HTML エンティティの簡易デコード
+  s = s.replace(/&nbsp;/g, ' ')
   return s.trim()
 }
 

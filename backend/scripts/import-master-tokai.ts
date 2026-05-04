@@ -1010,6 +1010,11 @@ async function main() {
     // eslint-disable-next-line no-console
     console.log('\nSupplementing 駅番号 from Wikipedia ナンバリング (US-047)...')
     await supplementFromWikipediaNumbering()
+
+    // US-048 / ADR 0018: 個別路線 Wikipedia 記事の駅一覧表から全駅補完
+    // eslint-disable-next-line no-console
+    console.log('\nSupplementing 駅番号 from individual line articles (US-048)...')
+    await supplementFromLineArticles()
   }
 
   // US-044 / ADR 0015 §C: 駅番号未付番の lineLink を audit レポートとして出力する。
@@ -1032,6 +1037,113 @@ async function cleanN02Imported(): Promise<{ deletedStations: number }> {
     where: { sourceUri: { contains: 'nlftp.mlit.go.jp' } },
   })
   return { deletedStations: res.count }
+}
+
+/**
+ * US-048 / ADR 0018: 取り込み済 Line ごとに個別 Wikipedia 記事を取得し,
+ * 駅一覧表をパースして駅番号空の lineLink を補完する。これで駅ナンバリング
+ * ページに掲載されない中間駅 (例: JR名古屋駅 CA68, 中京競馬場前 NH..) も
+ * 全駅補完可能。
+ */
+async function supplementFromLineArticles(): Promise<void> {
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const cacheDir = path.join(here, 'data', 'wikipedia', 'lines')
+
+  const { fetchLineArticle, parseStationCodesFromLineArticle } = await import(
+    './lib/wikipedia-line-pages.js'
+  )
+  const { normalizeWikipediaStationName } = await import(
+    './lib/wikipedia-numbering.js'
+  )
+
+  // 駅番号空の lineLink がある Line のみ対象に絞る
+  const lines = await prisma.line.findMany({
+    where: { sourceUri: { not: null } },
+    include: {
+      stationLinks: {
+        where: { code: '' },
+        include: { station: true },
+      },
+    },
+  })
+  const targetLines = lines.filter((l) => l.stationLinks.length > 0)
+  // eslint-disable-next-line no-console
+  console.log(`  Target lines (with empty code links): ${targetLines.length}`)
+
+  let totalFilled = 0
+  let totalErrors = 0
+  for (const line of targetLines) {
+    let article
+    try {
+      article = await fetchLineArticle(line.id, cacheDir)
+    } catch (e) {
+      totalErrors++
+      // eslint-disable-next-line no-console
+      console.warn(
+        `  [${line.id}] fetch failed: ${(e as Error).message}`,
+      )
+      continue
+    }
+    if (!article) {
+      // ja.wikipedia 記事が無い (alias 等)
+      continue
+    }
+    const entries = parseStationCodesFromLineArticle(article.wikitext)
+    if (entries.length === 0) continue
+
+    // この Line の prefix 集合 (article 由来 + 既存 DB 由来)
+    const linePrefixes = new Set<string>()
+    for (const e of entries) linePrefixes.add(e.prefix)
+
+    // article から「駅名 (正規化) → code」 map を作る
+    const codeByStationName = new Map<string, string>()
+    for (const e of entries) {
+      // この Line に属する prefix の entries のみ採用
+      // (記事内に他路線への参照表があるケースを除外)
+      if (!linePrefixes.has(e.prefix)) continue
+      const norm = normalizeWikipediaStationName(e.stationName)
+      // 同名複数行は最初を採用
+      if (!codeByStationName.has(norm)) {
+        codeByStationName.set(norm, e.code)
+      }
+    }
+
+    // この Line の駅番号空 lineLink を埋める
+    let filledForLine = 0
+    for (const link of line.stationLinks) {
+      const norm = normalizeWikipediaStationName(link.station.name)
+      const code = codeByStationName.get(norm)
+      if (!code) continue
+      // 既存 prefix とマッチするか念のため確認 (異なる路線の同名駅対策)
+      const m = code.match(/^([A-Z]+)(\d+)$/)
+      if (!m) continue
+      try {
+        await prisma.stationLine.update({
+          where: {
+            stationId_lineId: {
+              stationId: link.stationId,
+              lineId: link.lineId,
+            },
+          },
+          data: { code },
+        })
+        filledForLine++
+        totalFilled++
+      } catch {
+        // 同時削除等は無視
+      }
+    }
+    if (filledForLine > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `  [${line.name}] filled ${filledForLine}/${line.stationLinks.length} (article: ${article.title})`,
+      )
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.log(`  Line-article fills total: ${totalFilled}, errors: ${totalErrors}`)
 }
 
 /**
