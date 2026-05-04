@@ -88,6 +88,20 @@ export const OTHER_OPERATORS: ReadonlyArray<{
   { qid: 'Q11073857', name: '愛知高速交通', kind: 'train' },
 ]
 
+/**
+ * US-049 / ADR 0019: 運営会社マスタ ID マッピング。
+ * `Line.operator` (string) を Operator.id (slug) に変換するための固定マップ。
+ * Operator マスタ追加時の seed と同期している。
+ */
+export const OPERATOR_NAME_TO_ID: Readonly<Record<string, string>> = {
+  JR東海: 'jr-tokai',
+  名古屋鉄道: 'meitetsu',
+  近畿日本鉄道: 'kintetsu',
+  名古屋市交通局: 'nagoya-subway',
+  名古屋臨海高速鉄道: 'aonami',
+  愛知高速交通: 'linimo',
+}
+
 /** 4 県の Q-ID (ADR 0007 §2)。 */
 export const PREF_QIDS: ReadonlyArray<string> = [
   'Q80434', // 愛知県
@@ -455,7 +469,12 @@ HAVING (COUNT(DISTINCT ?station) >= 2)
 // ---------------------------------------------------------------------------
 
 type FetchedStation = {
+  /** Station.id。Wikidata 由来は `${sourceQid}-${operatorId}` (= operator 別分割で衝突しない複合 ID)。 */
   id: string
+  /** Wikidata Q-ID (元 entity). 同じ Q-ID が複数 operator で分割されると複数 Station が共有する。 */
+  sourceQid: string
+  /** US-049 / ADR 0019: この Station が属する operator (slug)。 */
+  operatorId: string | null
   name: string
   kana: string
   sourceUri: string
@@ -470,6 +489,12 @@ type FetchedStation = {
 export async function fetchStationsForLines(
   lineIds: string[],
   fetcher: typeof fetchSparql = fetchSparql,
+  /**
+   * US-049 / ADR 0019: lineId → operatorId (slug) のマッピング。
+   * 与えられない場合は全ステーションが operatorId=null の単一グループとして扱われる
+   * (互換: 既存のテスト fixture のため)。
+   */
+  lineToOperatorId: Map<string, string> = new Map(),
 ): Promise<FetchedStation[]> {
   if (lineIds.length === 0) return []
   // US-042 / ADR 0013: alias QID も VALUES に含めて SPARQL で取得対象にする。
@@ -514,6 +539,10 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
   const targetSet = canonicalSet
 
   type Acc = {
+    /** Wikidata Q-ID (この Acc の元エンティティ). 同じ Q-ID が複数 operator に分かれる場合は複数 Acc を持つ。 */
+    sourceQid: string
+    /** US-049 / ADR 0019: この Acc が属する operator (slug)。null は legacy 互換 (lineToOperatorId 未提供時) */
+    operatorId: string | null
     name: string
     kana: string
     sourceUri: string
@@ -523,63 +552,79 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     codesByLine: Map<string, Set<string>>
     /** qualifier 無し or qualifier が対象外路線の code 集合 */
     unattachedCodes: Set<string>
-    /** US-041 / ADR 0012: マージ判定用の座標 (1 駅で複数値があれば後勝ち) */
+    /** US-041 / ADR 0012: マージ判定用の座標 */
     coord: { lon: number; lat: number } | null
     /** US-041 / ADR 0012: P138 (名前の由来) リンク先の Q-ID 集合 */
     namedAfter: Set<string>
   }
+  // US-049: acc キーは `${qid}|${operatorId}` の複合キー (operator 別 split のため)。
   const acc = new Map<string, Acc>()
+  const accKey = (qid: string, opId: string | null) => `${qid}|${opId ?? ''}`
+
   for (const r of rows) {
     const stationQid = qidFromUri(r.station!.value)
     const lineQid = qidFromUri(r.line!.value)
-    let a = acc.get(stationQid)
+    // 0) lineQid を canonical に正規化 (alias 経由なら disambiguation)
+    const tempCoord = parseWktPoint(r.coord?.value) // 解決には coord が必要なので先に取る
+    const resolvedLine = resolveCanonicalLine(lineQid, canonicalSet, tempCoord)
+    if (!resolvedLine) {
+      // canonical line に解決できないので, この行から派生する operator 別 Acc を作れない。
+      // ただし P296/P138 等の駅メタ情報を将来 acc に追加する処理が動かないと困るので,
+      // operatorId=null の Acc にメタ情報を蓄積する fallback (legacy 動作互換)。
+      // 多くの場合スコープ外路線なので何もせずスキップで良い。
+      continue
+    }
+    const operatorId = lineToOperatorId.get(resolvedLine) ?? null
+
+    const key = accKey(stationQid, operatorId)
+    let a = acc.get(key)
     if (!a) {
       const rawName = r.stationLabel?.value ?? stationQid
       const normalized = normalizeStationName(rawName)
       const kana = stripEkiSuffix(r.stationKana?.value ?? '')
       a = {
+        sourceQid: stationQid,
+        operatorId,
         name: normalized,
         kana,
         sourceUri: `https://www.wikidata.org/wiki/${stationQid}`,
         lineIds: new Set(),
         codesByLine: new Map(),
         unattachedCodes: new Set(),
-        coord: parseWktPoint(r.coord?.value),
+        coord: tempCoord,
         namedAfter: new Set(),
       }
-      acc.set(stationQid, a)
+      acc.set(key, a)
     } else if (a.coord === null) {
-      // 初回 row で coord が無くても後の row で取れた場合は補完
-      a.coord = parseWktPoint(r.coord?.value)
+      a.coord = tempCoord
     }
     if (r.namedAfter?.value) {
       a.namedAfter.add(qidFromUri(r.namedAfter.value))
     }
-    // US-042 / ADR 0013: lineQid を canonical 路線に正規化 (alias 経由なら disambiguation)
-    const resolvedLine = resolveCanonicalLine(lineQid, canonicalSet, a.coord)
-    if (resolvedLine) a.lineIds.add(resolvedLine)
+    a.lineIds.add(resolvedLine)
     const codeVal = r.stationCode?.value
-    // US-037 / ADR 0009: 電報略号 (カタカナ表記の旧国鉄識別子) は駅番号と区別して除外する
+    // US-037 / ADR 0009: 電報略号 (カタカナ) は除外
     if (codeVal && isLikelyStationNumber(codeVal)) {
-      // US-039 / ADR 0010 / US-042 ADR 0013:
-      //   P81 / P518 qualifier も canonical 路線に正規化したうえで採用判定する
       const qP81 = r.qLineByP81?.value ? qidFromUri(r.qLineByP81.value) : null
-      const qP518 = r.qLineByP518?.value
-        ? qidFromUri(r.qLineByP518.value)
-        : null
-      const qLineP81 = qP81
-        ? resolveCanonicalLine(qP81, canonicalSet, a.coord)
-        : null
+      const qP518 = r.qLineByP518?.value ? qidFromUri(r.qLineByP518.value) : null
+      const qLineP81 = qP81 ? resolveCanonicalLine(qP81, canonicalSet, a.coord) : null
       const qLineP518 = qP518
         ? resolveCanonicalLine(qP518, canonicalSet, a.coord)
         : null
-      const qLine = qLineP81 ?? qLineP518
+      // qualifier が指す line が同 operator かを確認
+      const opOfQline = (lineId: string | null) =>
+        lineId ? lineToOperatorId.get(lineId) ?? null : null
+      const qLine =
+        qLineP81 && opOfQline(qLineP81) === operatorId
+          ? qLineP81
+          : qLineP518 && opOfQline(qLineP518) === operatorId
+            ? qLineP518
+            : null
       if (qLine) {
         const set = a.codesByLine.get(qLine) ?? new Set<string>()
         set.add(codeVal)
         a.codesByLine.set(qLine, set)
       } else {
-        // qualifier 無し or qualifier が対象外路線
         a.unattachedCodes.add(codeVal)
       }
     }
@@ -590,8 +635,24 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
   // 各 Q-ID 単位で先取り適用する。これにより, あおなみ線名古屋駅 (Q124417968 = lineLink
   // {あおなみ線} のみ + unattached {AN01}) のような単独路線 Q-ID がマージで複数 lineLink
   // に統合された後 ADR 0010 §3 の ambiguous でスキップされる問題を解消する。
+  //
+  // US-049 / ADR 0019: ただし, 大曽根 Q872075 のように operator-split された Acc では,
+  // SPARQL row で同 Q-ID の P296 statement が両 operator の Acc に重複展開される
+  // (CF04 と ST06 が両方の Acc の unattachedCodes に入る). 単純 dump すると JR大曽根
+  // に "CF04/ST06" が付くので, operator-split Acc では dump をスキップし, 後段の
+  // supplementFromLineArticles (Wikipedia 記事ベース) に補完を委ねる。
   for (const a of acc.values()) {
     if (a.lineIds.size === 1 && a.unattachedCodes.size > 0) {
+      const isOperatorSplit =
+        a.operatorId !== null &&
+        Array.from(acc.values()).some(
+          (other) => other !== a && other.sourceQid === a.sourceQid,
+        )
+      if (isOperatorSplit) {
+        // dump をスキップし code を空にして Wikipedia supplement に委譲
+        a.unattachedCodes.clear()
+        continue
+      }
       const onlyLineId = a.lineIds.values().next().value as string
       const set = a.codesByLine.get(onlyLineId) ?? new Set<string>()
       for (const c of a.unattachedCodes) set.add(c)
@@ -600,55 +661,56 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     }
   }
 
-  // US-041 / ADR 0012: 同一物理駅とみなせる Q-ID をマージする。
+  // US-041 / ADR 0012: 同一物理駅とみなせる Acc をマージする。
   //   (a) P138 (named after) リンク → 強い signal
   //   (b) 同名 + 座標距離 < MERGE_COORD_THRESHOLD_M → 弱い signal
-  // Union-Find で連結成分を作り、各成分を 1 つの canonical Q-ID にまとめる。
-  const allQids = Array.from(acc.keys())
+  // US-049 / ADR 0019: 同一 operator の Acc 間でのみ merge する (operator が違えば別駅)。
+  const allKeys = Array.from(acc.keys())
   const uf = new UnionFind()
-  for (const q of allQids) uf.add(q)
-  // (a) P138 リンク
-  for (const q of allQids) {
-    for (const target of acc.get(q)!.namedAfter) {
-      if (acc.has(target)) uf.union(q, target)
+  for (const k of allKeys) uf.add(k)
+  // (a) P138 リンク: 同 operator のターゲット Acc がいれば union
+  for (const k of allKeys) {
+    const a = acc.get(k)!
+    for (const targetQid of a.namedAfter) {
+      const targetKey = accKey(targetQid, a.operatorId)
+      if (acc.has(targetKey)) uf.union(k, targetKey)
     }
   }
-  // (b) 同名 + 座標近接 (O(N^2) だが N ~ 800 程度なので問題なし)
-  for (let i = 0; i < allQids.length; i++) {
-    const qa = allQids[i]!
-    const aa = acc.get(qa)!
+  // (b) 同名 + 座標近接 + 同 operator
+  for (let i = 0; i < allKeys.length; i++) {
+    const ka = allKeys[i]!
+    const aa = acc.get(ka)!
     if (!aa.coord) continue
-    for (let j = i + 1; j < allQids.length; j++) {
-      const qb = allQids[j]!
-      const ab = acc.get(qb)!
+    for (let j = i + 1; j < allKeys.length; j++) {
+      const kb = allKeys[j]!
+      const ab = acc.get(kb)!
       if (!ab.coord) continue
+      if (aa.operatorId !== ab.operatorId) continue // ★ operator 違いは merge しない
       if (aa.name !== ab.name) continue
-      if (uf.find(qa) === uf.find(qb)) continue // 既に union 済み
+      if (uf.find(ka) === uf.find(kb)) continue
       const d = haversineMeters(aa.coord, ab.coord)
-      if (d < MERGE_COORD_THRESHOLD_M) uf.union(qa, qb)
+      if (d < MERGE_COORD_THRESHOLD_M) uf.union(ka, kb)
     }
   }
 
-  // 各グループから canonical Q-ID を選び、メンバーをマージする。
+  // 各グループから canonical key を選び, メンバーをマージする。
   const merged = new Map<string, Acc>()
   for (const [, members] of uf.groups()) {
     if (members.length === 1) {
-      const q = members[0]!
-      merged.set(q, acc.get(q)!)
+      const k = members[0]!
+      merged.set(k, acc.get(k)!)
       continue
     }
-    // canonical 選定: 1) 他メンバーから P138 で参照されているものを優先
-    //                  2) lineLink 数が最大のもの
-    //                  3) Q-ID lex 昇順で先頭
-    const memberSet = new Set(members)
-    const referenced = members.filter((q) =>
-      members.some(
-        (other) => other !== q && acc.get(other)!.namedAfter.has(q),
-      ),
-    )
-    let canonical: string
+    // canonical 選定: 1) P138 参照される Acc を優先, 2) lineId 数最大, 3) lex 昇順
+    const referenced = members.filter((k) => {
+      const myQid = acc.get(k)!.sourceQid
+      return members.some(
+        (other) => other !== k && acc.get(other)!.namedAfter.has(myQid),
+      )
+    })
+    let canonicalKey: string
     if (referenced.length > 0) {
-      canonical = referenced.sort()[0]!
+      canonicalKey = referenced.sort()[0]!
     } else {
       const sorted = [...members].sort((x, y) => {
         const lx = acc.get(x)!.lineIds.size
@@ -656,11 +718,12 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
         if (lx !== ly) return ly - lx
         return x.localeCompare(y)
       })
-      canonical = sorted[0]!
+      canonicalKey = sorted[0]!
     }
-    // マージ: canonical の Acc に他メンバーを取り込む
-    const base = acc.get(canonical)!
+    const base = acc.get(canonicalKey)!
     const mergedAcc: Acc = {
+      sourceQid: base.sourceQid,
+      operatorId: base.operatorId,
       name: base.name,
       kana: base.kana,
       sourceUri: base.sourceUri,
@@ -672,9 +735,9 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
       coord: base.coord,
       namedAfter: new Set(base.namedAfter),
     }
-    for (const q of members) {
-      if (q === canonical) continue
-      const other = acc.get(q)!
+    for (const k of members) {
+      if (k === canonicalKey) continue
+      const other = acc.get(k)!
       if (!mergedAcc.kana && other.kana) mergedAcc.kana = other.kana
       for (const id of other.lineIds) mergedAcc.lineIds.add(id)
       for (const [lineId, codes] of other.codesByLine) {
@@ -684,8 +747,7 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
       }
       for (const c of other.unattachedCodes) mergedAcc.unattachedCodes.add(c)
     }
-    merged.set(canonical, mergedAcc)
-    void memberSet // (lint: 使わない変数の警告抑止)
+    merged.set(canonicalKey, mergedAcc)
   }
 
   // US-040 / ADR 0011: 第 1 パス完了後, qualifier 付き code から「路線 → prefix 集合」を学習する。
@@ -706,7 +768,7 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     }
   }
 
-  return Array.from(merged.entries()).map(([stationQid, a]) => {
+  return Array.from(merged.values()).map((a) => {
     const lineIds = Array.from(a.lineIds)
     const filledLineIds = new Set<string>()
     for (const [lineId, codes] of a.codesByLine) {
@@ -718,13 +780,10 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     const baseCode = (lineId: string): Set<string> =>
       new Set<string>(a.codesByLine.get(lineId) ?? [])
 
-    // Disposition: lineId → これから追加すべき code 集合
     const disposition = new Map<string, Set<string>>()
     const remainingUnattached = new Set(unattached)
 
-    // US-040 / ADR 0011 (a): prefix で一意に決まる unattached code を該当 lineLink に振り分け。
-    // 「該当駅の未埋め lineLink のうち prefix 集合に含むものが 1 件だけ」のときだけ採用。
-    // 0 件なら fallback、2 件以上の場合は曖昧なので fallback。
+    // US-040 / ADR 0011 (a): prefix で一意に決まる unattached を該当 lineLink へ
     if (remainingUnattached.size > 0 && unfilledLineIds.length >= 2) {
       for (const code of Array.from(remainingUnattached)) {
         const p = codePrefix(code)
@@ -745,14 +804,11 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
       }
     }
 
-    // 残った unattached の処理は ADR 0010 のフォールバック
     if (remainingUnattached.size > 0) {
-      // 「(a) で振り分け済の lineLink」を埋まったとみなして再計算する。
       const stillUnfilled = unfilledLineIds.filter(
         (id) => !disposition.has(id),
       )
       if (lineIds.length === 1) {
-        // ADR 0010 §1: 単独路線駅
         const target = lineIds[0]!
         let set = disposition.get(target)
         if (!set) {
@@ -761,7 +817,6 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
         }
         for (const c of remainingUnattached) set.add(c)
       } else if (stillUnfilled.length === 1) {
-        // ADR 0010 §2: 残り未埋め 1 件 → そこへ集約
         const target = stillUnfilled[0]!
         let set = disposition.get(target)
         if (!set) {
@@ -770,7 +825,6 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
         }
         for (const c of remainingUnattached) set.add(c)
       }
-      // ADR 0010 §3: それ以外は ambiguous でスキップ (何もしない)
     }
 
     const links = lineIds.map((lineId) => {
@@ -780,8 +834,13 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
       const sorted = Array.from(set).sort()
       return { lineId, code: sorted.join('/') }
     })
+    // US-049 / ADR 0019: Station.id は ${sourceQid}-${operatorId} 形式 (operator 別 split で
+    // 衝突しないため). operatorId が null (legacy 互換) の場合は sourceQid のみ。
+    const id = a.operatorId ? `${a.sourceQid}-${a.operatorId}` : a.sourceQid
     return {
-      id: stationQid,
+      id,
+      sourceQid: a.sourceQid,
+      operatorId: a.operatorId,
       name: a.name,
       kana: a.kana,
       sourceUri: a.sourceUri,
@@ -803,6 +862,8 @@ export async function upsertLines(lines: FetchedLine[]): Promise<{
   let updated = 0
   for (const l of lines) {
     const existing = await prisma.line.findUnique({ where: { id: l.id } })
+    // US-049 / ADR 0019: operator 文字列を operatorId (slug) に変換。
+    const operatorId = l.operator ? OPERATOR_NAME_TO_ID[l.operator] ?? null : null
     await prisma.line.upsert({
       where: { id: l.id },
       create: {
@@ -810,6 +871,7 @@ export async function upsertLines(lines: FetchedLine[]): Promise<{
         name: l.name,
         kind: l.kind,
         operator: l.operator,
+        operatorId,
         sourceUri: l.sourceUri,
         importedAt: now,
       },
@@ -817,6 +879,7 @@ export async function upsertLines(lines: FetchedLine[]): Promise<{
         name: l.name,
         kind: l.kind,
         operator: l.operator,
+        operatorId,
         sourceUri: l.sourceUri,
         importedAt: now,
       },
@@ -851,13 +914,17 @@ export async function upsertStationsAndLinks(
         id: s.id,
         name: s.name,
         kana: s.kana,
+        operatorId: s.operatorId,
         sourceUri: s.sourceUri,
+        sourceQid: s.sourceQid,
         importedAt: now,
       },
       update: {
         name: s.name,
         kana: s.kana,
+        operatorId: s.operatorId,
         sourceUri: s.sourceUri,
+        sourceQid: s.sourceQid,
         importedAt: now,
       },
     })
@@ -971,7 +1038,17 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log('\nFetching stations for all imported lines...')
-  const stations = await fetchStationsForLines(allLines.map((l) => l.id))
+  // US-049 / ADR 0019: line → operatorId マップを作って渡す (operator 別 split のため)
+  const lineToOperatorId = new Map<string, string>()
+  for (const l of allLines) {
+    const opId = OPERATOR_NAME_TO_ID[l.operator]
+    if (opId) lineToOperatorId.set(l.id, opId)
+  }
+  const stations = await fetchStationsForLines(
+    allLines.map((l) => l.id),
+    fetchSparql,
+    lineToOperatorId,
+  )
   // eslint-disable-next-line no-console
   console.log(`  Stations fetched: ${stations.length}`)
 

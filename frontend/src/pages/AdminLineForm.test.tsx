@@ -7,6 +7,7 @@ import { AdminLineNew, AdminLineEdit } from './AdminLineForm'
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
 const useLinesMock = vi.fn()
+const useOperatorsMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
@@ -25,6 +26,10 @@ vi.mock('../lib/lines', () => ({
   useLines: (opts: { enabled?: boolean }) => useLinesMock(opts),
 }))
 
+vi.mock('../lib/operators', () => ({
+  useOperators: (opts: { enabled?: boolean }) => useOperatorsMock(opts),
+}))
+
 const ADMIN = {
   id: 'u1',
   email: 'admin@example.com',
@@ -40,9 +45,16 @@ const LINE_TOKAIDO = {
   name: 'JR東海道線',
   kind: 'train',
   operator: 'JR東海',
+  operatorId: 'jr-tokai',
+  operatorName: 'JR東海',
   routeSegmentCount: 0,
   stationCount: 5,
 }
+
+const OPERATORS = [
+  { id: 'jr-tokai', name: 'JR東海', aliases: [] },
+  { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
+]
 
 function NavSpy() {
   const loc = useLocation()
@@ -89,6 +101,13 @@ beforeEach(() => {
   useLinesMock.mockReset()
   useLinesMock.mockReturnValue({
     lines: [LINE_TOKAIDO],
+    loading: false,
+    error: null,
+    reload: () => {},
+  })
+  useOperatorsMock.mockReset()
+  useOperatorsMock.mockReturnValue({
+    operators: OPERATORS,
     loading: false,
     error: null,
     reload: () => {},
@@ -224,7 +243,8 @@ describe('AdminLineEdit (US-025 編集)', () => {
     })
     expect(screen.getByLabelText(/^ID/)).toBeDisabled()
     expect(screen.getByLabelText(/^路線名/)).toHaveValue('JR東海道線')
-    expect(screen.getByLabelText(/運営会社/)).toHaveValue('JR東海')
+    // US-049: 運営会社は dropdown (operatorId を value に持つ)
+    expect(screen.getByLabelText(/運営会社/)).toHaveValue('jr-tokai')
   })
 
   it('admin: 該当 id が無い場合は「該当の路線が見つかりません」表示', async () => {

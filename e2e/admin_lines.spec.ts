@@ -82,7 +82,8 @@ test.describe('US-012 路線マスタ管理 (admin)', () => {
     await page.getByLabel(/^ID/).fill(id)
     await page.getByLabel(/^路線名/).fill(initialName)
     await page.getByLabel(/^種別/).selectOption('train')
-    await page.getByLabel(/運営会社/).fill('JR東海')
+    // US-049: 運営会社は dropdown (operator id を value に持つ)
+    await page.getByLabel(/運営会社/).selectOption('jr-tokai')
     await page.getByRole('button', { name: '作成する' }).click()
 
     await expect(page).toHaveURL('/admin/lines')

@@ -9,6 +9,8 @@ import {
 import { Account } from './pages/Account'
 import { AdminLineEdit, AdminLineNew } from './pages/AdminLineForm'
 import { AdminLines } from './pages/AdminLines'
+import { AdminOperatorEdit, AdminOperatorNew } from './pages/AdminOperatorForm'
+import { AdminOperators } from './pages/AdminOperators'
 import { AdminStationEdit, AdminStationNew } from './pages/AdminStationForm'
 import { AdminStations } from './pages/AdminStations'
 import { Login } from './pages/Login'
@@ -39,6 +41,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/admin/stations" element={<AdminStations />} />
         <Route path="/admin/stations/new" element={<AdminStationNew />} />
         <Route path="/admin/stations/:id/edit" element={<AdminStationEdit />} />
+        <Route path="/admin/operators" element={<AdminOperators />} />
+        <Route path="/admin/operators/new" element={<AdminOperatorNew />} />
+        <Route path="/admin/operators/:id/edit" element={<AdminOperatorEdit />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

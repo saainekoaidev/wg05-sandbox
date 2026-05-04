@@ -18,6 +18,7 @@
 | S08 | プロフィール設定 | `/account` | 認証必須 | [プロフィール設定](ui-screens/screen_design_account.md) | (画面イメージ未作成) |
 | S09 | 路線マスタ管理 | `/admin/lines` | 認証必須 + role=admin | [路線マスタ管理](ui-screens/screen_design_admin_lines.md) | (画面イメージ未作成) |
 | S10 | 駅マスタ管理 | `/admin/stations` | 認証必須 + role=admin | [駅マスタ管理](ui-screens/screen_design_admin_stations.md) | (画面イメージ未作成) |
+| S11 | 運営会社マスタ管理 | `/admin/operators` | 認証必須 + role=admin | [運営会社マスタ管理](ui-screens/screen_design_admin_operators.md) | (画面イメージ未作成) |
 
 ---
 
@@ -37,6 +38,7 @@
 | US-010 | アカウント削除 | S08 プロフィール設定 (削除セクション) | - |
 | US-012 | 路線マスタ管理 (admin) | S09 路線マスタ管理 | S08 プロフィール設定 (admin リンク) |
 | US-013 | 駅マスタ管理 (admin) | S10 駅マスタ管理 | S08 プロフィール設定 (admin リンク), S09 路線マスタ管理 (誘導) |
+| US-049 | 運営会社マスタ + 駅 operator 分割 (admin) | S11 運営会社マスタ管理 | S09 路線マスタ管理 (operator dropdown), S10 駅マスタ管理 (operator フィルタ) |
 
 ---
 
@@ -66,7 +68,8 @@
    │   ├→ S08 プロフィール設定 (一覧フッタの「ユーザー: ...」リンク)
    │   │     ├→ 一覧へ戻る
    │   │     ├→ S09 路線マスタ管理 (admin のみ)
-   │   │     └→ S10 駅マスタ管理 (admin のみ; S09 ↔ S10 相互リンク)
+   │   │     ├→ S10 駅マスタ管理 (admin のみ; S09 ↔ S10 相互リンク)
+   │   │     └→ S11 運営会社マスタ管理 (admin のみ; S09 路線フォームと S10 駅フィルタから参照)
    │
    └────────────── ログアウト → S02 ─┘
 ```

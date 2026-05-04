@@ -7,6 +7,7 @@ import { AdminStationNew, AdminStationEdit } from './AdminStationForm'
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
 const useLinesMock = vi.fn()
+const useOperatorsMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
@@ -23,6 +24,10 @@ vi.mock('../lib/lines', () => ({
     { value: 'other', label: 'その他' },
   ],
   useLines: (opts: { enabled?: boolean }) => useLinesMock(opts),
+}))
+
+vi.mock('../lib/operators', () => ({
+  useOperators: (opts: { enabled?: boolean }) => useOperatorsMock(opts),
 }))
 
 const ADMIN = {
@@ -48,6 +53,8 @@ const STATION_NAGOYA = {
   id: 'stn-nagoya',
   name: '名古屋',
   kana: 'なごや',
+  operatorId: null,
+  operatorName: null,
   // US-033: 路線ごとに code を持つ
   lines: [{ id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', code: 'CA68' }],
 }
@@ -101,6 +108,16 @@ beforeEach(() => {
   useLinesMock.mockReset()
   useLinesMock.mockReturnValue({
     lines: [LINE_TOKAIDO],
+    loading: false,
+    error: null,
+    reload: () => {},
+  })
+  useOperatorsMock.mockReset()
+  useOperatorsMock.mockReturnValue({
+    operators: [
+      { id: 'jr-tokai', name: 'JR東海', aliases: [] },
+      { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
+    ],
     loading: false,
     error: null,
     reload: () => {},

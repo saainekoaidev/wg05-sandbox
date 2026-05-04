@@ -1877,3 +1877,375 @@ describe('DELETE /api/admin/stations/:id (admin 削除)', () => {
     ).toBe(0)
   })
 })
+
+// =====================================================================
+// /api/operators (US-049 / ADR 0019 運営会社マスタ)
+// =====================================================================
+
+async function getOperators(cookie: string | null): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/operators', { method: 'GET', headers }),
+  )
+}
+
+async function getAdminOperators(cookie: string | null): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/admin/operators', { method: 'GET', headers }),
+  )
+}
+
+async function postAdminOperator(cookie: string | null, body: unknown): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request('http://localhost/api/admin/operators', {
+      method: 'POST',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  )
+}
+
+async function putAdminOperator(
+  cookie: string | null,
+  id: string,
+  body: unknown,
+): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/admin/operators/${id}`, {
+      method: 'PUT',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+  )
+}
+
+async function deleteAdminOperator(
+  cookie: string | null,
+  id: string,
+): Promise<Response> {
+  const headers: Record<string, string> = {}
+  if (cookie) headers.cookie = cookie
+  return app.fetch(
+    new Request(`http://localhost/api/admin/operators/${id}`, {
+      method: 'DELETE',
+      headers,
+    }),
+  )
+}
+
+describe('GET /api/operators (一覧)', () => {
+  it('未認証では 401', async () => {
+    const res = await getOperators(null)
+    expect(res.status).toBe(401)
+  })
+
+  it('認証ユーザは seed 済 6 社を取得できる', async () => {
+    const cookie = await signUpAndGetCookie('op-list@example.com', 'Test1234')
+    const res = await getOperators(cookie)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      operators: Array<{ id: string; name: string; aliases: string[] }>
+    }
+    const ids = body.operators.map((o) => o.id).sort()
+    expect(ids).toEqual(
+      ['aonami', 'jr-tokai', 'kintetsu', 'linimo', 'meitetsu', 'nagoya-subway'].sort(),
+    )
+    const jr = body.operators.find((o) => o.id === 'jr-tokai')
+    expect(jr).toBeTruthy()
+    expect(jr!.aliases).toEqual(['東海旅客鉄道'])
+  })
+})
+
+describe('POST /api/admin/operators (admin 作成)', () => {
+  it('未認証では 401', async () => {
+    const res = await postAdminOperator(null, {
+      id: 'foo',
+      name: 'Foo鉄道',
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('非管理者では 403', async () => {
+    const cookie = await signUpAndGetCookie('op-non@example.com', 'Test1234')
+    const res = await postAdminOperator(cookie, {
+      id: 'foo',
+      name: 'Foo鉄道',
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('admin: id format が不正なら 400', async () => {
+    const email = 'op-admin1@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postAdminOperator(cookie, {
+      id: 'INVALID UPPER',
+      name: 'X',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('admin: 重複 id なら 409', async () => {
+    const email = 'op-admin2@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postAdminOperator(cookie, {
+      id: 'jr-tokai',
+      name: 'duplicate',
+    })
+    expect(res.status).toBe(409)
+  })
+
+  it('admin: 正常作成で 201, aliases パース済の JSON が返る', async () => {
+    const email = 'op-admin3@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postAdminOperator(cookie, {
+      id: 'jr-east',
+      name: 'JR東日本',
+      aliases: '["東日本旅客鉄道"]',
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).toEqual({
+      id: 'jr-east',
+      name: 'JR東日本',
+      aliases: ['東日本旅客鉄道'],
+    })
+    await prisma.operator.delete({ where: { id: 'jr-east' } })
+  })
+
+  it('admin: aliases 不正 JSON なら 400', async () => {
+    const email = 'op-admin4@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await postAdminOperator(cookie, {
+      id: 'jr-west',
+      name: 'JR西日本',
+      aliases: 'not-json',
+    })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('PUT /api/admin/operators/:id', () => {
+  it('admin: 未存在なら 404', async () => {
+    const email = 'op-put1@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await putAdminOperator(cookie, 'nope', {
+      name: 'X',
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('admin: name と aliases を更新できる', async () => {
+    const email = 'op-put2@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.operator.create({
+      data: { id: 'tmp-update', name: 'Old', aliases: '[]' },
+    })
+    const res = await putAdminOperator(cookie, 'tmp-update', {
+      name: 'New',
+      aliases: '["alias1"]',
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual({
+      id: 'tmp-update',
+      name: 'New',
+      aliases: ['alias1'],
+    })
+    await prisma.operator.delete({ where: { id: 'tmp-update' } })
+  })
+})
+
+describe('DELETE /api/admin/operators/:id', () => {
+  it('admin: 参照中なら 409', async () => {
+    const email = 'op-del1@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    // jr-tokai は seed.ts で作成され, 通常 Line.operatorId 参照は無い (seed 直後)
+    // ただし他のテストで Line を作成してしまう可能性があるため, 専用 operator を作る
+    await prisma.operator.create({
+      data: { id: 'tmp-inuse', name: 'TmpInUse', aliases: '[]' },
+    })
+    await prisma.line.create({
+      data: {
+        id: 'tmp-inuse-line',
+        name: 'TmpInUseLine',
+        kind: 'train',
+        operatorId: 'tmp-inuse',
+      },
+    })
+    const res = await deleteAdminOperator(cookie, 'tmp-inuse')
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body).toMatchObject({ error: 'in_use', lineCount: 1 })
+    await prisma.line.delete({ where: { id: 'tmp-inuse-line' } })
+    await prisma.operator.delete({ where: { id: 'tmp-inuse' } })
+  })
+
+  it('admin: 未参照なら 204', async () => {
+    const email = 'op-del2@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.operator.create({
+      data: { id: 'tmp-free', name: 'TmpFree', aliases: '[]' },
+    })
+    const res = await deleteAdminOperator(cookie, 'tmp-free')
+    expect(res.status).toBe(204)
+    expect(await prisma.operator.findUnique({ where: { id: 'tmp-free' } })).toBeNull()
+  })
+})
+
+describe('GET /api/admin/operators (件数同梱)', () => {
+  it('admin: 件数情報が同梱される', async () => {
+    const email = 'op-cnt@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    await prisma.operator.create({
+      data: { id: 'cnt-op', name: 'CntOp', aliases: '[]' },
+    })
+    await prisma.line.create({
+      data: { id: 'cnt-line', name: 'CntLine', kind: 'train', operatorId: 'cnt-op' },
+    })
+    await prisma.station.create({
+      data: { id: 'cnt-stn', name: 'CntStn', kana: 'cnt', operatorId: 'cnt-op' },
+    })
+    const res = await getAdminOperators(cookie)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      operators: Array<{ id: string; lineCount: number; stationCount: number }>
+    }
+    const found = body.operators.find((o) => o.id === 'cnt-op')
+    expect(found).toMatchObject({ lineCount: 1, stationCount: 1 })
+    await prisma.station.delete({ where: { id: 'cnt-stn' } })
+    await prisma.line.delete({ where: { id: 'cnt-line' } })
+    await prisma.operator.delete({ where: { id: 'cnt-op' } })
+  })
+})
+
+describe('Line API: operatorId 連動', () => {
+  it('POST /api/lines with operatorId が DB に保存され, GET で operatorName 同梱', async () => {
+    const email = 'line-op@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await app.fetch(
+      new Request('http://localhost/api/lines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({
+          id: 'op-test-line',
+          name: 'OpTestLine',
+          kind: 'train',
+          operatorId: 'jr-tokai',
+        }),
+      }),
+    )
+    expect(res.status).toBe(201)
+    const created = await res.json()
+    expect(created.operatorId).toBe('jr-tokai')
+    expect(created.operator).toBe('JR東海') // operator 文字列も同期される
+
+    const list = await app.fetch(
+      new Request('http://localhost/api/lines', {
+        method: 'GET',
+        headers: { cookie },
+      }),
+    )
+    const body = (await list.json()) as {
+      lines: Array<{ id: string; operatorId: string | null; operatorName: string | null }>
+    }
+    const found = body.lines.find((l) => l.id === 'op-test-line')
+    expect(found).toMatchObject({ operatorId: 'jr-tokai', operatorName: 'JR東海' })
+    await prisma.line.delete({ where: { id: 'op-test-line' } })
+  })
+
+  it('POST /api/lines with 未存在 operatorId は 400', async () => {
+    const email = 'line-op-bad@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await app.fetch(
+      new Request('http://localhost/api/lines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({
+          id: 'op-bad-line',
+          name: 'OpBadLine',
+          kind: 'train',
+          operatorId: 'no-such-op',
+        }),
+      }),
+    )
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('Station API: operatorId 連動', () => {
+  it('POST /api/admin/stations with operatorId 設定 + GET フィルタ', async () => {
+    const email = 'stn-op@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await app.fetch(
+      new Request('http://localhost/api/admin/stations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({
+          id: 'stn-op-1',
+          name: 'OpStn',
+          kana: 'おぴすたん',
+          operatorId: 'meitetsu',
+        }),
+      }),
+    )
+    expect(res.status).toBe(201)
+    const created = await res.json()
+    expect(created.operatorId).toBe('meitetsu')
+    expect(created.operatorName).toBe('名古屋鉄道')
+
+    // フィルタ確認
+    const filtered = await app.fetch(
+      new Request('http://localhost/api/admin/stations?operatorId=meitetsu', {
+        method: 'GET',
+        headers: { cookie },
+      }),
+    )
+    const body = (await filtered.json()) as {
+      stations: Array<{ id: string; operatorId: string | null }>
+    }
+    const ids = body.stations.map((s) => s.id)
+    expect(ids).toContain('stn-op-1')
+    for (const s of body.stations) {
+      expect(s.operatorId).toBe('meitetsu')
+    }
+    await prisma.station.delete({ where: { id: 'stn-op-1' } })
+  })
+
+  it('POST /api/admin/stations with 未存在 operatorId は 400', async () => {
+    const email = 'stn-op-bad@example.com'
+    const cookie = await signUpAndGetCookie(email, 'Test1234')
+    await makeAdmin(email)
+    const res = await app.fetch(
+      new Request('http://localhost/api/admin/stations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({
+          id: 'stn-bad',
+          name: 'X',
+          kana: 'x',
+          operatorId: 'no-such-op',
+        }),
+      }),
+    )
+    expect(res.status).toBe(400)
+  })
+})
