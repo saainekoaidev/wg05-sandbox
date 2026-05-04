@@ -585,6 +585,21 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qLineByP81 ?qL
     }
   }
 
+  // US-044 / ADR 0015 §B: マージ前に「単独路線 Q-ID + unattached code」を確定。
+  // ADR 0010 §1 (lineLink が 1 件のみなら unattached を全部採用) を, ADR 0012 のマージ前に
+  // 各 Q-ID 単位で先取り適用する。これにより, あおなみ線名古屋駅 (Q124417968 = lineLink
+  // {あおなみ線} のみ + unattached {AN01}) のような単独路線 Q-ID がマージで複数 lineLink
+  // に統合された後 ADR 0010 §3 の ambiguous でスキップされる問題を解消する。
+  for (const a of acc.values()) {
+    if (a.lineIds.size === 1 && a.unattachedCodes.size > 0) {
+      const onlyLineId = a.lineIds.values().next().value as string
+      const set = a.codesByLine.get(onlyLineId) ?? new Set<string>()
+      for (const c of a.unattachedCodes) set.add(c)
+      a.codesByLine.set(onlyLineId, set)
+      a.unattachedCodes.clear()
+    }
+  }
+
   // US-041 / ADR 0012: 同一物理駅とみなせる Q-ID をマージする。
   //   (a) P138 (named after) リンク → 強い signal
   //   (b) 同名 + 座標距離 < MERGE_COORD_THRESHOLD_M → 弱い signal
@@ -957,9 +972,122 @@ async function main() {
     `  Stations: created ${stationRes.created} / updated ${stationRes.updated} / StationLine ${stationRes.links}`,
   )
 
+  // US-044 / ADR 0015 §C: 駅番号未付番の lineLink を audit レポートとして出力する。
+  // eslint-disable-next-line no-console
+  console.log('\nWriting audit report (US-044)...')
+  await writeAuditReport()
+
   // eslint-disable-next-line no-console
   console.log(
     `\nDone in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`,
+  )
+}
+
+/**
+ * US-044 / ADR 0015 §C: 取り込み後の DB 状態を集計し, 駅番号未付番の lineLink を
+ * `docs/audit/missing-station-codes.md` に Markdown 形式で出力する。
+ * 主に Wikidata 側のデータ不備で自動補完できなかった駅×路線の可視化を目的とする。
+ */
+async function writeAuditReport(): Promise<void> {
+  const path = await import('node:path')
+  const fs = await import('node:fs/promises')
+  const { fileURLToPath } = await import('node:url')
+
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  // backend/scripts/ から repo root に上がる
+  const repoRoot = path.resolve(here, '..', '..')
+  const outDir = path.join(repoRoot, 'docs', 'audit')
+  const outPath = path.join(outDir, 'missing-station-codes.md')
+  await fs.mkdir(outDir, { recursive: true })
+
+  const totalStation = await prisma.station.count({
+    where: { sourceUri: { not: null } },
+  })
+  const totalLink = await prisma.stationLine.count({
+    where: { line: { sourceUri: { not: null } } },
+  })
+  const withCode = await prisma.stationLine.count({
+    where: {
+      code: { not: '' },
+      line: { sourceUri: { not: null } },
+    },
+  })
+  const missing = await prisma.stationLine.findMany({
+    where: {
+      code: '',
+      line: { sourceUri: { not: null } },
+    },
+    include: { station: true, line: true },
+    orderBy: [
+      { station: { name: 'asc' } },
+      { line: { name: 'asc' } },
+    ],
+  })
+
+  const pct = totalLink === 0 ? 0 : Math.round((withCode / totalLink) * 1000) / 10
+  const now = new Date().toISOString()
+
+  const lines: string[] = []
+  lines.push('# 駅番号 未付番 audit レポート')
+  lines.push('')
+  lines.push(
+    '> このファイルは取り込みスクリプト終了時に自動生成されます。手動で編集しないでください。',
+  )
+  lines.push(
+    '> 生成元: `pnpm --filter backend exec tsx scripts/import-master-tokai.ts`',
+  )
+  lines.push('')
+  lines.push(`- 生成日時: \`${now}\``)
+  lines.push(`- 取り込み済 Station 件数 (Wikidata 由来): **${totalStation}**`)
+  lines.push(`- 取り込み済 StationLine 件数: **${totalLink}**`)
+  lines.push(`- 駅番号付番済 link: **${withCode}** (${pct}%)`)
+  lines.push(`- 未付番 link: **${missing.length}**`)
+  lines.push('')
+  lines.push('## 主な未付番要因')
+  lines.push('')
+  lines.push(
+    '取り込みは ADR 0007 で凍結したスコープ (JR 14 路線 + OTHER_OPERATORS 5 社) に限定されている。残った未付番 link は主に以下の理由で自動補完できないもの:',
+  )
+  lines.push('')
+  lines.push(
+    '1. Wikidata の P296 (driver code) statement そのものが未登録 (例: JR名古屋駅 = P296 が "ナコ" 電報略号のみで CA68 等の現代駅番号が未登録)',
+  )
+  lines.push(
+    '2. P296 が登録されているが qualifier (P81/P518) で路線特定情報がなく, 複数路線駅では prefix 推定でも判定できない (ADR 0011 §3 ambiguous fallback)',
+  )
+  lines.push(
+    '3. 電報略号 (カタカナ) のみの駅 (ADR 0009 で正しく除外されたためここに残る)',
+  )
+  lines.push('')
+  lines.push(
+    '本リストは upstream Wikidata 編集者への修正依頼の根拠データとしても利用できる。',
+  )
+  lines.push('')
+  lines.push('## 未付番リスト')
+  lines.push('')
+  if (missing.length === 0) {
+    lines.push('(該当なし — すべての lineLink に駅番号が付番されています)')
+  } else {
+    lines.push('| 駅名 | よみがな | 路線 | 種別 | 駅 Q-ID | 路線 Q-ID |')
+    lines.push('| --- | --- | --- | --- | --- | --- |')
+    for (const m of missing) {
+      const cells = [
+        m.station.name,
+        m.station.kana || '-',
+        m.line.name,
+        m.line.kind,
+        `\`${m.station.id}\``,
+        `\`${m.line.id}\``,
+      ]
+      lines.push(`| ${cells.join(' | ')} |`)
+    }
+  }
+  lines.push('')
+
+  await fs.writeFile(outPath, lines.join('\n'), 'utf8')
+  // eslint-disable-next-line no-console
+  console.log(
+    `  Audit report written: ${path.relative(repoRoot, outPath)} (${missing.length} missing entries)`,
   )
 }
 
