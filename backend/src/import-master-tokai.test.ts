@@ -11,6 +11,7 @@ import {
   katakanaToHiragana,
   stripEkiSuffix,
   isLikelyStationNumber,
+  codePrefix,
   JR_LINE_QIDS,
   DENY_LINE_QIDS,
   OTHER_OPERATORS,
@@ -89,6 +90,21 @@ describe('inferKana early-return (US-027)', () => {
   it('空文字は空文字を返す', async () => {
     const { inferKana } = await import('../scripts/import-master-tokai.js')
     expect(await inferKana('')).toBe('')
+  })
+})
+
+describe('codePrefix (US-040 / ADR 0011)', () => {
+  it('英字 + 数字 → 英字部分を大文字で返す', () => {
+    expect(codePrefix('CF03')).toBe('CF')
+    expect(codePrefix('NH34')).toBe('NH')
+    expect(codePrefix('h12')).toBe('H')
+  })
+  it('純数字は空文字 (prefix 判定対象外)', () => {
+    expect(codePrefix('23')).toBe('')
+    expect(codePrefix('')).toBe('')
+  })
+  it('英字のみは prefix そのもの', () => {
+    expect(codePrefix('AAA')).toBe('AAA')
   })
 })
 
@@ -446,6 +462,121 @@ describe('fetchStationsForLines', () => {
     )
     const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
     // どっちが T1 か T2 か断定できないので両方空文字
+    expect(linkMap.get('Q-T1')).toBe('')
+    expect(linkMap.get('Q-T2')).toBe('')
+  })
+
+  it('US-040 / ADR 0011: prefix 学習で「両 unattached + 両 unfilled」が自動割当される (大曽根パターン)', async () => {
+    // 第 1 パスで他駅から学習: Q-OTHER-CHUO (中央線) で CF09, Q-OTHER-SETO (瀬戸線) で ST04
+    // → prefixesByLine[Q-CHUO] = {"CF"}, prefixesByLine[Q-SETO] = {"ST"}
+    // 第 2 パスで Q-OZONE (両 unattached: CF04, ST06) を prefix で振り分け
+    const fakeFetcher = async () => [
+      // 学習データ: CF09 を中央線 (qualifier 付き)
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OTHER-CHUO' },
+        stationLabel: { value: '高蔵寺' },
+        stationCode: { value: 'CF09' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+        line: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+      },
+      // 学習データ: ST04 を瀬戸線 (qualifier 付き)
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OTHER-SETO' },
+        stationLabel: { value: '尾張瀬戸' },
+        stationCode: { value: 'ST04' },
+        qLineByP518: { value: 'http://www.wikidata.org/entity/Q-SETO' },
+        line: { value: 'http://www.wikidata.org/entity/Q-SETO' },
+      },
+      // 大曽根: 両 unattached
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OZONE' },
+        stationLabel: { value: '大曽根' },
+        stationCode: { value: 'CF04' },
+        line: { value: 'http://www.wikidata.org/entity/Q-CHUO' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OZONE' },
+        stationLabel: { value: '大曽根' },
+        stationCode: { value: 'ST06' },
+        line: { value: 'http://www.wikidata.org/entity/Q-SETO' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-CHUO', 'Q-SETO'],
+      fakeFetcher as never,
+    )
+    const ozone = stations.find((s) => s.id === 'Q-OZONE')!
+    const linkMap = new Map(ozone.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-CHUO')).toBe('CF04')
+    expect(linkMap.get('Q-SETO')).toBe('ST06')
+  })
+
+  it('US-040: 学習データが無い prefix は ADR 0010 §3 にフォールバック (空)', async () => {
+    const fakeFetcher = async () => [
+      // 学習データなし
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NEW' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'XX01' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NEW' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'YY02' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    // prefix XX/YY のどちらも学習データに無いので fallback (両 unfilled + 両 unattached → 空)
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    expect(linkMap.get('Q-T1')).toBe('')
+    expect(linkMap.get('Q-T2')).toBe('')
+  })
+
+  it('US-040: prefix が複数 lineLink にマッチする場合は (a) でなく fallback', async () => {
+    // CF prefix を 2 路線に学習させ、ambiguous を作る
+    const fakeFetcher = async () => [
+      // Q-T1 で "CF99" を学習
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-LEARN1' },
+        stationLabel: { value: '学1' },
+        stationCode: { value: 'CF99' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      // Q-T2 でも "CF98" を学習 (同じ prefix CF を共有する仮想ケース)
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-LEARN2' },
+        stationLabel: { value: '学2' },
+        stationCode: { value: 'CF98' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q-T2' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+      // 対象駅: 両 unattached + prefix CF
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-AMBIG2' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'CF01' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-AMBIG2' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'CF02' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T2' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q-T1', 'Q-T2'],
+      fakeFetcher as never,
+    )
+    const ambig = stations.find((s) => s.id === 'Q-AMBIG2')!
+    const linkMap = new Map(ambig.links.map((l) => [l.lineId, l.code]))
+    // prefix CF が両 lineLink にマッチするので (a) はスキップ → fallback (空)
     expect(linkMap.get('Q-T1')).toBe('')
     expect(linkMap.get('Q-T2')).toBe('')
   })
