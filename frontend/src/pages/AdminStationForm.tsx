@@ -109,6 +109,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
   const [formKana, setFormKana] = useState('')
   /// US-049 / ADR 0019: 運営会社マスタ ID (任意)。
   const [formOperatorId, setFormOperatorId] = useState('')
+  /// US-050: 路線ピッカーの種別フィルタ (UI 専用)。
+  const [linePickerKind, setLinePickerKind] = useState<'' | LineKind>('')
   // US-033: チェック済み lineId → 駅番号 code の Map。
   // チェックを外すと entry を削除し駅番号入力もクリアされる。
   const [formLineCodes, setFormLineCodes] = useState<Map<string, string>>(
@@ -543,6 +545,26 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
           </div>
         </div>
 
+        {/* US-050: 種別 → 路線 (運営会社は上の運営会社 select で兼ねる) */}
+        <div className="group">
+          <label htmlFor="line-picker-kind">種別 (路線一覧の絞り込み)</label>
+          <select
+            id="line-picker-kind"
+            value={linePickerKind}
+            onChange={(e) => setLinePickerKind(e.target.value as '' | LineKind)}
+            disabled={submitting}
+          >
+            <option value="">すべて</option>
+            <option value="train">電車</option>
+            <option value="subway">地下鉄</option>
+            <option value="bus">バス</option>
+            <option value="other">その他</option>
+          </select>
+          <div className="hint">
+            運営会社・種別の組み合わせで路線一覧を絞り込めます。チェック済みの路線は絞り込み外でも表示されます。
+          </div>
+        </div>
+
         <div className="group">
           <label>接続路線 / 駅番号</label>
           {linesState.lines && linesState.lines.length === 0 && (
@@ -558,7 +580,15 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
               role="group"
               aria-label="接続路線と駅番号の選択"
             >
-              {linesState.lines.map((line: ApiLine) => {
+              {linesState.lines
+                .filter((line: ApiLine) => {
+                  // 既にチェック済みの行は絞り込みに関係なく必ず表示する
+                  if (formLineCodes.has(line.id)) return true
+                  if (formOperatorId && line.operatorId !== formOperatorId) return false
+                  if (linePickerKind && line.kind !== linePickerKind) return false
+                  return true
+                })
+                .map((line: ApiLine) => {
                 const checked = formLineCodes.has(line.id)
                 const code = formLineCodes.get(line.id) ?? ''
                 const codeFieldId = `code:${line.id}`

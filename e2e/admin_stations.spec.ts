@@ -102,7 +102,8 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
     // 3. 編集 — Link で /admin/stations/:id/edit
     await page.getByRole('link', { name: `駅「${initialName}」を編集` }).click()
     await expect(page).toHaveURL(`/admin/stations/${stationId}/edit`)
-    await expect(page.getByLabel('ID')).toBeDisabled()
+    // US-050: 路線ピッカーの aria-label に random suffix が含まれ "ID" 部分一致でマッチしうるため exact 指定
+    await expect(page.getByLabel('ID', { exact: true })).toBeDisabled()
     // 注意書き
     await expect(
       page.getByText(/既存経路に登録されている駅名文字列は/),

@@ -3,6 +3,14 @@ import { Navigate, useSearchParams } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
+import { useOperators } from '../lib/operators'
+import {
+  applyKind,
+  applyLine,
+  applyOperator,
+  visibleLines,
+  visibleOperatorIds,
+} from '../lib/cascade'
 
 type ApiStation = {
   id: string
@@ -53,12 +61,14 @@ const VALID_KINDS: ReadonlySet<string> = new Set(['train', 'subway', 'bus', 'oth
 
 export function StationPicker() {
   const { data: session, isPending } = useSession()
-  // US-016: 経路登録/編集 popup から ?kind=...&line=...&q=... を受け取り初期値にする
+  // US-016: 経路登録/編集 popup から ?kind=...&line=...&q=...&operator=... を受け取り初期値にする
   const [searchParams] = useSearchParams()
   const initialKind = searchParams.get('kind') ?? ''
   const initialLine = searchParams.get('line') ?? ''
+  const initialOperator = searchParams.get('operator') ?? ''
   const initialQ = searchParams.get('q') ?? ''
   const [q, setQ] = useState(initialQ)
+  const [operator, setOperator] = useState<string>(initialOperator)
   const [kind, setKind] = useState<'' | LineKind>(
     VALID_KINDS.has(initialKind) ? (initialKind as LineKind) : '',
   )
@@ -68,6 +78,47 @@ export function StationPicker() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const linesState = useLines({ enabled: !!session })
+  const operatorsState = useOperators({ enabled: !!session })
+
+  // US-050: cascade 用データ
+  const cascadeData = useMemo(
+    () => ({
+      lines: (linesState.lines ?? []).map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        operatorId: l.operatorId,
+      })),
+    }),
+    [linesState.lines],
+  )
+
+  function onChangeOperator(op: string) {
+    const next = applyOperator({ operator, kind, line: lineId }, op, cascadeData)
+    setOperator(next.operator)
+    setKind(next.kind)
+    setLineId(next.line)
+  }
+  function onChangeKind(k: '' | LineKind) {
+    const next = applyKind({ operator, kind, line: lineId }, k, cascadeData)
+    setOperator(next.operator)
+    setKind(next.kind)
+    setLineId(next.line)
+  }
+  function onChangeLine(lid: string) {
+    const next = applyLine({ operator, kind, line: lineId }, lid, cascadeData)
+    setOperator(next.operator)
+    setKind(next.kind)
+    setLineId(next.line)
+  }
+
+  const visibleOpIds = useMemo(
+    () => visibleOperatorIds({ kind, line: lineId }, cascadeData),
+    [kind, lineId, cascadeData],
+  )
+  const visibleLineList = useMemo(
+    () => visibleLines({ operator, kind }, linesState.lines ?? []),
+    [operator, kind, linesState.lines],
+  )
 
   // US-030: ソート状態。null の間は API の既定順 (name asc) を維持。
   const [sortBy, setSortBy] = useState<SortColumn | null>(null)
@@ -121,11 +172,12 @@ export function StationPicker() {
     qVal: string,
     kindVal: '' | LineKind,
     lineIdVal: string,
+    operatorVal: string = '',
   ) {
     setError(null)
     setSearched(true)
-    if (!qVal.trim() && !kindVal && !lineIdVal) {
-      setError('駅名・種別・路線のいずれかを入力または選択してください')
+    if (!qVal.trim() && !kindVal && !lineIdVal && !operatorVal) {
+      setError('駅名・運営会社・種別・路線のいずれかを入力または選択してください')
       setStations([])
       return
     }
@@ -133,6 +185,7 @@ export function StationPicker() {
     try {
       const params = new URLSearchParams()
       if (qVal.trim()) params.set('q', qVal.trim())
+      if (operatorVal) params.set('operator', operatorVal)
       if (kindVal) params.set('kind', kindVal)
       if (lineIdVal) params.set('line', lineIdVal)
       const res = await fetch(`http://localhost:3000/api/stations?${params}`, {
@@ -158,14 +211,15 @@ export function StationPicker() {
   useEffect(() => {
     if (isPending || !session) return
     if (autoSearchedRef.current) return
-    if (!initialQ && !initialKind && !initialLine) return
+    if (!initialQ && !initialKind && !initialLine && !initialOperator) return
     autoSearchedRef.current = true
     void executeSearch(
       initialQ,
       VALID_KINDS.has(initialKind) ? (initialKind as LineKind) : '',
       initialLine,
+      initialOperator,
     )
-  }, [isPending, session, initialQ, initialKind, initialLine])
+  }, [isPending, session, initialQ, initialKind, initialLine, initialOperator])
 
   if (!isPending && !session) {
     return <Navigate to="/login" replace />
@@ -173,11 +227,12 @@ export function StationPicker() {
 
   async function handleSearch(e: FormEvent) {
     e.preventDefault()
-    await executeSearch(q, kind, lineId)
+    await executeSearch(q, kind, lineId, operator)
   }
 
   function handleClear() {
     setQ('')
+    setOperator('')
     setKind('')
     setLineId('')
     setStations(null)
@@ -235,22 +290,30 @@ export function StationPicker() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
+          {/* US-050: 運営会社 → 種別 → 路線 順 + cascade */}
+          <div className="group group--narrow">
+            <label htmlFor="picker-operator">運営会社</label>
+            <select
+              id="picker-operator"
+              value={operator}
+              onChange={(e) => onChangeOperator(e.target.value)}
+            >
+              <option value="">すべての会社</option>
+              {(operatorsState.operators ?? [])
+                .filter((op) => visibleOpIds.size === 0 || visibleOpIds.has(op.id))
+                .map((op) => (
+                  <option key={op.id} value={op.id}>
+                    {op.name}
+                  </option>
+                ))}
+            </select>
+          </div>
           <div className="group group--narrow">
             <label htmlFor="picker-kind">種別</label>
             <select
               id="picker-kind"
               value={kind}
-              onChange={(e) => {
-                // US-017: 種別を変えると現在選択中の路線がその種別と矛盾する場合は line をクリア
-                const newKind = e.target.value as '' | LineKind
-                setKind(newKind)
-                if (newKind && lineId) {
-                  const cur = (linesState.lines ?? []).find(
-                    (l) => l.id === lineId,
-                  )
-                  if (cur && cur.kind !== newKind) setLineId('')
-                }
-              }}
+              onChange={(e) => onChangeKind(e.target.value as '' | LineKind)}
             >
               <option value="">すべて</option>
               <option value="train">電車</option>
@@ -264,27 +327,14 @@ export function StationPicker() {
             <select
               id="picker-line"
               value={lineId}
-              onChange={(e) => {
-                // US-017: 路線を選ぶと該当路線の種別を自動セット (種別との整合を保つ)
-                const newLineId = e.target.value
-                setLineId(newLineId)
-                if (newLineId) {
-                  const cur = (linesState.lines ?? []).find(
-                    (l) => l.id === newLineId,
-                  )
-                  if (cur) setKind(cur.kind)
-                }
-              }}
+              onChange={(e) => onChangeLine(e.target.value)}
             >
               <option value="">すべての路線</option>
-              {(linesState.lines ?? [])
-                // US-017: 種別が選ばれていれば該当 kind の路線のみに絞り込む
-                .filter((l) => !kind || l.kind === kind)
-                .map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
+              {visibleLineList.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
             </select>
           </div>
           <button type="submit" className="btn btn-primary" disabled={loading}>

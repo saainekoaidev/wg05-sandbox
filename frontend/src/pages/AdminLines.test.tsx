@@ -6,12 +6,28 @@ import { AdminLines } from './AdminLines'
 
 const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
+const useLinesMock = vi.fn()
+const useOperatorsMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
   signUp: { email: vi.fn() },
   signOut: vi.fn(),
   useSession: () => mockUseSession(),
+}))
+
+vi.mock('../lib/lines', () => ({
+  KIND_OPTIONS: [
+    { value: 'train', label: '電車' },
+    { value: 'subway', label: '地下鉄' },
+    { value: 'bus', label: 'バス' },
+    { value: 'other', label: 'その他' },
+  ],
+  useLines: (opts: { enabled?: boolean }) => useLinesMock(opts),
+}))
+
+vi.mock('../lib/operators', () => ({
+  useOperators: (opts: { enabled?: boolean }) => useOperatorsMock(opts),
 }))
 
 function renderAdminLines(state?: { notice?: string }) {
@@ -50,6 +66,8 @@ const LINE_A = {
   name: 'JR東海道線',
   kind: 'train',
   operator: 'JR東海',
+  operatorId: 'jr-tokai',
+  operatorName: 'JR東海',
   routeSegmentCount: 0,
   stationCount: 5,
 }
@@ -59,9 +77,16 @@ const LINE_B = {
   name: '名古屋市営地下鉄名城線',
   kind: 'subway',
   operator: '名古屋市交通局',
+  operatorId: 'nagoya-subway',
+  operatorName: '名古屋市交通局',
   routeSegmentCount: 2, // 削除不可ケース
   stationCount: 12,
 }
+
+const OPERATORS = [
+  { id: 'jr-tokai', name: 'JR東海', aliases: [] },
+  { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [] },
+]
 
 beforeEach(() => {
   mockUseSession.mockReturnValue({
@@ -69,6 +94,20 @@ beforeEach(() => {
     isPending: false,
   })
   fetchMock.mockReset()
+  useLinesMock.mockReset()
+  useLinesMock.mockReturnValue({
+    lines: [LINE_A, LINE_B],
+    loading: false,
+    error: null,
+    reload: () => {},
+  })
+  useOperatorsMock.mockReset()
+  useOperatorsMock.mockReturnValue({
+    operators: OPERATORS,
+    loading: false,
+    error: null,
+    reload: () => {},
+  })
   vi.stubGlobal('fetch', fetchMock)
   // US-034: テスト間でフィルタが残らないよう sessionStorage をクリア
   try {
@@ -109,7 +148,7 @@ describe('AdminLines', () => {
     expect(
       screen.getByRole('link', { name: '経路一覧に戻る' }),
     ).toHaveAttribute('href', '/routes')
-    // /api/lines は呼ばれない (admin チェックで早期 return)
+    // /api/users/me のみ。useLines / useOperators は admin チェックで disable。
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -124,13 +163,12 @@ describe('AdminLines', () => {
   })
 
   it('admin で 0 件なら空状態 + 新規作成リンク (US-025)', async () => {
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(ADMIN), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [] }), { status: 200 }),
-      )
+    useLinesMock.mockReturnValue({
+      lines: [], loading: false, error: null, reload: () => {},
+    })
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(ADMIN), { status: 200 }),
+    )
     renderAdminLines()
     expect(
       await screen.findByText('路線マスタは現在空です。'),
@@ -144,15 +182,9 @@ describe('AdminLines', () => {
   })
 
   it('admin でデータがあれば table にレンダリングされ、編集は /admin/lines/:id/edit リンク (US-025)', async () => {
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(ADMIN), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [LINE_A, LINE_B] }), {
-          status: 200,
-        }),
-      )
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(ADMIN), { status: 200 }),
+    )
     renderAdminLines()
     expect(await screen.findByText('JR東海道線')).toBeInTheDocument()
     expect(screen.getByText('名古屋市営地下鉄名城線')).toBeInTheDocument()
@@ -178,13 +210,12 @@ describe('AdminLines', () => {
   })
 
   it('navigate state.notice があれば通知バナー表示 (新規/編集画面からの遷移想定)', async () => {
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(ADMIN), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [] }), { status: 200 }),
-      )
+    useLinesMock.mockReturnValue({
+      lines: [], loading: false, error: null, reload: () => {},
+    })
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(ADMIN), { status: 200 }),
+    )
     renderAdminLines({ notice: '路線を作成しました' })
     expect(
       await screen.findByText(/路線を作成しました/),
@@ -318,13 +349,12 @@ describe('AdminLines', () => {
 
   it('削除: 参照ありで 409 を受けるとバナーに件数が出る', async () => {
     const user = userEvent.setup()
-    // LINE_A は参照0件だが、サーバが他の経由で 409 を返したケースをシミュレート
+    useLinesMock.mockReturnValue({
+      lines: [LINE_A], loading: false, error: null, reload: () => {},
+    })
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [LINE_A] }), { status: 200 }),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -351,17 +381,14 @@ describe('AdminLines', () => {
 
   it('削除: 確認 OK + 204 → reload + 成功バナー', async () => {
     const user = userEvent.setup()
+    useLinesMock.mockReturnValue({
+      lines: [LINE_A], loading: false, error: null, reload: () => {},
+    })
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
       )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [LINE_A] }), { status: 200 }),
-      )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [] }), { status: 200 }),
-      )
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     try {
       renderAdminLines()
@@ -372,7 +399,7 @@ describe('AdminLines', () => {
       await waitFor(() => {
         expect(screen.getByText('路線を削除しました')).toBeInTheDocument()
       })
-      const [url, init] = fetchMock.mock.calls[2]!
+      const [url, init] = fetchMock.mock.calls[1]!
       expect(url).toContain('/api/lines/jr-tokaido')
       expect(init.method).toBe('DELETE')
     } finally {
@@ -382,13 +409,12 @@ describe('AdminLines', () => {
 
   it('削除: confirm キャンセルなら DELETE が呼ばれない', async () => {
     const user = userEvent.setup()
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(ADMIN), { status: 200 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ lines: [LINE_A] }), { status: 200 }),
-      )
+    useLinesMock.mockReturnValue({
+      lines: [LINE_A], loading: false, error: null, reload: () => {},
+    })
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(ADMIN), { status: 200 }),
+    )
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     try {
       renderAdminLines()
@@ -396,58 +422,62 @@ describe('AdminLines', () => {
       await user.click(
         screen.getByRole('button', { name: /路線「JR東海道線」を削除/ }),
       )
-      // /api/users/me + /api/lines のみで DELETE は呼ばれない
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      // /api/users/me のみで DELETE は呼ばれない
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     } finally {
       confirmSpy.mockRestore()
     }
   })
 
-  describe('US-034 フィルタ持続化 (sessionStorage)', () => {
+  describe('US-034 / US-050 フィルタ持続化 (sessionStorage)', () => {
     it('種別フィルタを変更すると sessionStorage に保存される', async () => {
       const user = userEvent.setup()
-      fetchMock
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify(ADMIN), { status: 200 }),
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ lines: [LINE_A, LINE_B] }), {
-            status: 200,
-          }),
-        )
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ADMIN), { status: 200 }),
+      )
       renderAdminLines()
       await screen.findByText('JR東海道線')
 
-      await user.selectOptions(screen.getByLabelText('種別で絞り込み'), 'subway')
+      // US-050: ラベルを「種別」に統一
+      await user.selectOptions(screen.getByLabelText('種別'), 'subway')
       await waitFor(() => {
         const raw = sessionStorage.getItem('admin-lines-filter')
         expect(raw).not.toBeNull()
-        expect(JSON.parse(raw!)).toEqual({ kind: 'subway' })
+        // US-050: kind を選ぶと operator が candidate 1 件 (nagoya-subway) なら自動選択
+        expect(JSON.parse(raw!)).toEqual({ operator: 'nagoya-subway', kind: 'subway' })
       })
     })
 
     it('sessionStorage に保存済みの値があれば mount 時に復元', async () => {
       sessionStorage.setItem(
         'admin-lines-filter',
-        JSON.stringify({ kind: 'subway' }),
+        JSON.stringify({ operator: '', kind: 'subway' }),
       )
-      fetchMock
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify(ADMIN), { status: 200 }),
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ lines: [LINE_A, LINE_B] }), {
-            status: 200,
-          }),
-        )
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ADMIN), { status: 200 }),
+      )
       renderAdminLines()
       await screen.findByText('名古屋市営地下鉄名城線')
-      // セレクトが地下鉄に復元されている
+      // US-050: 種別 select が地下鉄に復元されている
       expect(
-        (screen.getByLabelText('種別で絞り込み') as HTMLSelectElement).value,
+        (screen.getByLabelText('種別') as HTMLSelectElement).value,
       ).toBe('subway')
       // フィルタの結果 train 路線 (JR東海道線) は表示されない
       expect(screen.queryByText('JR東海道線')).not.toBeInTheDocument()
+    })
+
+    it('US-050: 運営会社フィルタを選ぶと該当 operator の路線のみ一覧に残る', async () => {
+      const user = userEvent.setup()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ADMIN), { status: 200 }),
+      )
+      renderAdminLines()
+      await screen.findByText('JR東海道線')
+
+      // 運営会社=JR東海 を選ぶと line 表は JR のみ
+      await user.selectOptions(screen.getByLabelText('運営会社'), 'jr-tokai')
+      expect(screen.queryByText('名古屋市営地下鉄名城線')).not.toBeInTheDocument()
+      expect(screen.getByText('JR東海道線')).toBeInTheDocument()
     })
   })
 })

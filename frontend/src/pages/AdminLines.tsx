@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useLines, type ApiLine, type LineKind } from '../lib/lines'
+import { useOperators } from '../lib/operators'
+import { applyKind, applyOperator, visibleOperatorIds } from '../lib/cascade'
 import { useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -26,27 +28,31 @@ const KIND_TAG_CLASS: Record<LineKind, string> = {
   other: 'tag tag-other',
 }
 
-// US-034: フィルタ保存キー。sessionStorage はタブ閉じで消えるためログアウト後に持ち越さない。
+// US-034 / US-050: フィルタ保存キー。sessionStorage はタブ閉じで消えるためログアウト後に持ち越さない。
 const FILTER_KEY = 'admin-lines-filter'
 const VALID_KINDS = new Set(['', 'train', 'subway', 'bus', 'other'])
 
-function readAdminLinesFilter(): '' | LineKind {
+type StoredFilter = { operator: string; kind: '' | LineKind }
+
+function readAdminLinesFilter(): StoredFilter {
   try {
     const raw = sessionStorage.getItem(FILTER_KEY)
-    if (raw === null) return ''
-    const parsed = JSON.parse(raw) as { kind?: unknown }
-    if (typeof parsed.kind === 'string' && VALID_KINDS.has(parsed.kind)) {
-      return parsed.kind as '' | LineKind
-    }
+    if (raw === null) return { operator: '', kind: '' }
+    const parsed = JSON.parse(raw) as { operator?: unknown; kind?: unknown }
+    const kind =
+      typeof parsed.kind === 'string' && VALID_KINDS.has(parsed.kind)
+        ? (parsed.kind as '' | LineKind)
+        : ''
+    const operator = typeof parsed.operator === 'string' ? parsed.operator : ''
+    return { operator, kind }
   } catch {
-    // 不正値 → 空文字に倒す
+    return { operator: '', kind: '' }
   }
-  return ''
 }
 
-function writeAdminLinesFilter(kind: '' | LineKind): void {
+function writeAdminLinesFilter(f: StoredFilter): void {
   try {
-    sessionStorage.setItem(FILTER_KEY, JSON.stringify({ kind }))
+    sessionStorage.setItem(FILTER_KEY, JSON.stringify(f))
   } catch {
     // ストレージ容量超過等は無視 (フィルタが復元されないだけで実害なし)
   }
@@ -101,6 +107,7 @@ export function AdminLines() {
   }, [isPending, session, navigate])
 
   const linesState = useLines({ enabled: me?.role === 'admin' })
+  const operatorsState = useOperators({ enabled: me?.role === 'admin' })
 
   const [banner, setBanner] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -160,19 +167,59 @@ export function AdminLines() {
     [],
   )
 
-  // US-031 / US-034: 種別フィルタ。値は sessionStorage に保存し
-  // /admin/lines/new や /:id/edit から戻ってきたときに復元する。
-  const [kindFilter, setKindFilter] = useState<'' | LineKind>(() =>
-    readAdminLinesFilter(),
-  )
+  // US-031 / US-034 / US-050: 運営会社 + 種別フィルタ。値は sessionStorage に保存。
+  const initialFilter = useMemo(() => readAdminLinesFilter(), [])
+  const [operatorFilter, setOperatorFilter] = useState<string>(initialFilter.operator)
+  const [kindFilter, setKindFilter] = useState<'' | LineKind>(initialFilter.kind)
   useEffect(() => {
-    writeAdminLinesFilter(kindFilter)
-  }, [kindFilter])
+    writeAdminLinesFilter({ operator: operatorFilter, kind: kindFilter })
+  }, [operatorFilter, kindFilter])
+
+  // US-050: cascade 用データ
+  const cascadeData = useMemo(
+    () => ({
+      lines: (linesState.lines ?? []).map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        operatorId: l.operatorId,
+      })),
+    }),
+    [linesState.lines],
+  )
+
+  function onChangeOperator(op: string) {
+    const next = applyOperator(
+      { operator: operatorFilter, kind: kindFilter, line: '' },
+      op,
+      cascadeData,
+    )
+    setOperatorFilter(next.operator)
+    setKindFilter(next.kind)
+  }
+
+  function onChangeKind(k: '' | LineKind) {
+    const next = applyKind(
+      { operator: operatorFilter, kind: kindFilter, line: '' },
+      k,
+      cascadeData,
+    )
+    setOperatorFilter(next.operator)
+    setKindFilter(next.kind)
+  }
+
+  const visibleOpIds = useMemo(
+    () => visibleOperatorIds({ kind: kindFilter, line: '' }, cascadeData),
+    [kindFilter, cascadeData],
+  )
+
   const filteredLines = useMemo(() => {
     if (!linesState.lines) return null
-    if (!kindFilter) return linesState.lines
-    return linesState.lines.filter((l) => l.kind === kindFilter)
-  }, [linesState.lines, kindFilter])
+    return linesState.lines.filter((l) => {
+      if (operatorFilter && l.operatorId !== operatorFilter) return false
+      if (kindFilter && l.kind !== kindFilter) return false
+      return true
+    })
+  }, [linesState.lines, operatorFilter, kindFilter])
 
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />
@@ -293,16 +340,31 @@ export function AdminLines() {
 
         {linesState.lines && linesState.lines.length > 0 && (
           <>
-            {/* US-031: 種別フィルタ */}
+            {/* US-031 / US-050: 運営会社 → 種別 の順でフィルタ。cascade 連動。 */}
             <div className="search-row" style={{ marginBottom: 16 }}>
               <div className="group group--narrow">
-                <label htmlFor="admin-lines-kind">種別で絞り込み</label>
+                <label htmlFor="admin-lines-operator">運営会社</label>
+                <select
+                  id="admin-lines-operator"
+                  value={operatorFilter}
+                  onChange={(e) => onChangeOperator(e.target.value)}
+                >
+                  <option value="">すべての会社</option>
+                  {(operatorsState.operators ?? [])
+                    .filter((op) => visibleOpIds.size === 0 || visibleOpIds.has(op.id))
+                    .map((op) => (
+                      <option key={op.id} value={op.id}>
+                        {op.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="group group--narrow">
+                <label htmlFor="admin-lines-kind">種別</label>
                 <select
                   id="admin-lines-kind"
                   value={kindFilter}
-                  onChange={(e) =>
-                    setKindFilter(e.target.value as '' | LineKind)
-                  }
+                  onChange={(e) => onChangeKind(e.target.value as '' | LineKind)}
                 >
                   <option value="">すべて</option>
                   <option value="train">電車</option>
@@ -329,8 +391,8 @@ export function AdminLines() {
                     <tr>
                       <th>ID</th>
                       <th>路線名</th>
-                      <th>種別</th>
                       <th>運営会社</th>
+                      <th>種別</th>
                       <th className="col-num">参照経路</th>
                       <th className="col-num">接続駅</th>
                       <th className="col-actions">操作</th>
@@ -346,12 +408,12 @@ export function AdminLines() {
                           <code>{line.id}</code>
                         </td>
                         <td>{line.name}</td>
+                        <td>{line.operatorName ?? line.operator ?? '—'}</td>
                         <td>
                           <span className={KIND_TAG_CLASS[line.kind]}>
                             {KIND_LABEL[line.kind]}
                           </span>
                         </td>
-                        <td>{line.operator ?? '—'}</td>
                         <td className="col-num">{line.routeSegmentCount}</td>
                         <td className="col-num">{line.stationCount}</td>
                         <td>

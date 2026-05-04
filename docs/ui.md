@@ -39,6 +39,7 @@
 | US-012 | 路線マスタ管理 (admin) | S09 路線マスタ管理 | S08 プロフィール設定 (admin リンク) |
 | US-013 | 駅マスタ管理 (admin) | S10 駅マスタ管理 | S08 プロフィール設定 (admin リンク), S09 路線マスタ管理 (誘導) |
 | US-049 | 運営会社マスタ + 駅 operator 分割 (admin) | S11 運営会社マスタ管理 | S09 路線マスタ管理 (operator dropdown), S10 駅マスタ管理 (operator フィルタ) |
+| US-050 | 運営会社 → 種別 → 路線 並び統一 + cascade 連動 | S04/S05 経路登録/編集, S07 駅マスタ参照, S09 路線マスタ管理, S10 駅マスタ管理 | (frontend/src/lib/cascade.ts に共通実装) |
 
 ---
 
