@@ -9,8 +9,8 @@
 | 概要 | 管理者が駅マスタ (Station) と接続路線 (StationLine) を一括で管理する画面 |
 | URL | `/admin/stations` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042, US-043 |
-| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス), docs/adr/0014-dynamic-line-discovery.md (4 県内鉄道路線の動的発見 + audit レポート) |
+| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042, US-043 (撤回), US-044 |
+| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス), docs/adr/0014-dynamic-line-discovery.md (Superseded by 0015), docs/adr/0015-revert-line-scope.md (scope を ADR 0007 に戻す + マージ前 unattached 確定 + audit レポート) |
 
 ---
 
@@ -67,6 +67,8 @@ US-040: US-039 の補完で救えなかった「両 unattached + 両 unfilled」
 US-041: Wikidata で同一物理駅が複数 Q-ID に分割されているケース (大曽根=2 エンティティ、名古屋=5 エンティティ) を取り込み時にマージし、駅マスタで 1 行に統合する。マージ条件は (a) P138 (名前の由来) リンク または (b) 同名 + 座標距離 < 500m。canonical Q-ID を 1 つ選び全 lineLink/code 情報を集約する。詳細は ADR 0012。
 
 US-042: 取り込み対象路線に「親エンティティ Q-ID のエイリアス」を許容する。例えば JR東海道線 (名古屋地区 Q11235139 / 静岡地区 Q11527981) の親エンティティ Q1190152 (東海道本線 全国) を両者の alias として登録し、駅座標の経度で disambiguation する。これにより金山駅 (P81=Q1190152 のみで地区版未紐付け) も正しく東海道線 名古屋地区として取り込まれ、駅番号 CA66 も拾われる。詳細は ADR 0013。
+
+US-044: ADR 0007 凍結スコープ内で駅番号付番率を最大化する。fetchStationsForLines のマージ前に「単独路線 Q-ID + unattached code」を該当 lineLink に確定する処理を入れることで、あおなみ線名古屋駅 (Q124417968 単独 + AN01) がマージで失われていた問題を解消。加えて取り込み完了時に駅番号未付番の lineLink を `docs/audit/missing-station-codes.md` に出力し、Wikidata 側不備で自動補完できない駅 (例: JR名古屋駅 = P296 が "ナコ" のみ) を可視化する。詳細は ADR 0015。
 
 US-038: 駅マスタの新規/編集画面の入力欄 (ID/駅名/よみがな/駅番号) のいずれかでバリデーションエラーが発生した時, 対象 input/select に `aria-invalid="true"` + `.is-error` クラスを付与し赤枠で強調する。送信ハンドラは該当要素に `scrollIntoView({ block: 'center' })` + `focus()` を行う。
 
