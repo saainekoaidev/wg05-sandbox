@@ -9,8 +9,8 @@
 | 概要 | 管理者が駅マスタ (Station) と接続路線 (StationLine) を一括で管理する画面 |
 | URL | `/admin/stations` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041 |
-| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ) |
+| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042 |
+| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス) |
 
 ---
 
@@ -65,6 +65,8 @@ US-039: 複数路線が乗り入れる駅で駅番号が路線をまたいで併
 US-040: US-039 の補完で救えなかった「両 unattached + 両 unfilled」駅 (例: 大曽根 = `CF04`/`ST06`) でも, 駅番号の英字 prefix から路線を推定して自動割当する。第 1 パスで qualifier 付き code から「路線 → prefix 集合」を学習し、第 2 パスで unattached code の prefix が該当駅の未埋め lineLink のいずれか 1 つの prefix と一致すれば割当。複数マッチや prefix 学習データ無しは ADR 0010 §3 にフォールバック。詳細は ADR 0011。
 
 US-041: Wikidata で同一物理駅が複数 Q-ID に分割されているケース (大曽根=2 エンティティ、名古屋=5 エンティティ) を取り込み時にマージし、駅マスタで 1 行に統合する。マージ条件は (a) P138 (名前の由来) リンク または (b) 同名 + 座標距離 < 500m。canonical Q-ID を 1 つ選び全 lineLink/code 情報を集約する。詳細は ADR 0012。
+
+US-042: 取り込み対象路線に「親エンティティ Q-ID のエイリアス」を許容する。例えば JR東海道線 (名古屋地区 Q11235139 / 静岡地区 Q11527981) の親エンティティ Q1190152 (東海道本線 全国) を両者の alias として登録し、駅座標の経度で disambiguation する。これにより金山駅 (P81=Q1190152 のみで地区版未紐付け) も正しく東海道線 名古屋地区として取り込まれ、駅番号 CA66 も拾われる。詳細は ADR 0013。
 
 US-038: 駅マスタの新規/編集画面の入力欄 (ID/駅名/よみがな/駅番号) のいずれかでバリデーションエラーが発生した時, 対象 input/select に `aria-invalid="true"` + `.is-error` クラスを付与し赤枠で強調する。送信ハンドラは該当要素に `scrollIntoView({ block: 'center' })` + `focus()` を行う。
 
