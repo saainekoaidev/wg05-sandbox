@@ -9,8 +9,8 @@
 | 概要 | 管理者が駅マスタ (Station) と接続路線 (StationLine) を一括で管理する画面 |
 | URL | `/admin/stations` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042, US-043 (撤回), US-044, US-045 |
-| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス), docs/adr/0014-dynamic-line-discovery.md (Superseded by 0015), docs/adr/0015-revert-line-scope.md (scope を ADR 0007 に戻す + マージ前 unattached 確定 + audit レポート), docs/adr/0016-n02-secondary-source.md (国土数値情報 N02 を従データソースとして併用) |
+| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042, US-043 (撤回), US-044, US-045, US-047 |
+| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス), docs/adr/0014-dynamic-line-discovery.md (Superseded by 0015), docs/adr/0015-revert-line-scope.md (scope を ADR 0007 に戻す + マージ前 unattached 確定 + audit レポート), docs/adr/0016-n02-secondary-source.md (国土数値情報 N02 を従データソースとして併用 / US-047 でデフォルト無効化), docs/adr/0017-wikipedia-numbering.md (Wikipedia 駅ナンバリング取り込み + audit ソース別分離) |
 
 ---
 
@@ -70,7 +70,9 @@ US-042: 取り込み対象路線に「親エンティティ Q-ID のエイリア
 
 US-044: ADR 0007 凍結スコープ内で駅番号付番率を最大化する。fetchStationsForLines のマージ前に「単独路線 Q-ID + unattached code」を該当 lineLink に確定する処理を入れることで、あおなみ線名古屋駅 (Q124417968 単独 + AN01) がマージで失われていた問題を解消。加えて取り込み完了時に駅番号未付番の lineLink を `docs/audit/missing-station-codes.md` に出力し、Wikidata 側不備で自動補完できない駅 (例: JR名古屋駅 = P296 が "ナコ" のみ) を可視化する。詳細は ADR 0015。
 
-US-045: 駅マスタ取り込みの source を Wikidata 単独から「Wikidata 主 + 国土数値情報 N02 従」併用に拡張する。N02 は 4 県分の鉄道 GeoJSON を国交省からダウンロードし, Wikidata 由来駅と「座標 < 200m + 名称一致」で突合。一致する駅は運営会社・正式路線名を補完, Wikidata に無い駅は新規追加 (ホワイトリスト路線スコープ内のみ)。N02 には駅番号は含まれないため, 駅番号取り込みのメインは引き続き Wikidata 経由。詳細は ADR 0016。
+US-045: 駅マスタ取り込みの source を Wikidata 単独から「Wikidata 主 + 国土数値情報 N02 従」併用に拡張する。N02 は 4 県分の鉄道 GeoJSON を国交省からダウンロードし, Wikidata 由来駅と「座標 < 200m + 名称一致」で突合。一致する駅は運営会社・正式路線名を補完, Wikidata に無い駅は新規追加 (ホワイトリスト路線スコープ内のみ)。N02 には駅番号は含まれないため, 駅番号取り込みのメインは引き続き Wikidata 経由。詳細は ADR 0016。**US-047 で修正**: N02 取り込みは US-046 の先行基盤としてデフォルト無効化 (`--with-n02` で有効化)。
+
+US-047: 駅番号網羅性の本格対応。(a) N02 取り込みをデフォルト無効化 + `--clean-n02` で既存 N02 由来駅 266 件を削除可能に。(b) Wikipedia 駅ナンバリングページ (https://ja.wikipedia.org/wiki/駅ナンバリング) を MediaWiki API で取得し, 「路線記号 + 駅 + 駅番号」表をパースして, スコープ内駅で空の lineLink.code を補完 (Wikidata の qualifier 値が優先, 上書きはしない)。(c) audit レポートをソース別 (Wikidata / Wikipedia / N02) に分離し, 構造的に補完不能な駅 (= N02 駅) と本来補完すべき駅 (= Wikidata 駅 + Wikipedia 表にも無い) を可視化。詳細は ADR 0017。
 
 US-038: 駅マスタの新規/編集画面の入力欄 (ID/駅名/よみがな/駅番号) のいずれかでバリデーションエラーが発生した時, 対象 input/select に `aria-invalid="true"` + `.is-error` クラスを付与し赤枠で強調する。送信ハンドラは該当要素に `scrollIntoView({ block: 'center' })` + `focus()` を行う。
 
