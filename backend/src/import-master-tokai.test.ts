@@ -14,6 +14,8 @@ import {
   codePrefix,
   parseWktPoint,
   haversineMeters,
+  resolveCanonicalLine,
+  LINE_ALIASES,
   JR_LINE_QIDS,
   DENY_LINE_QIDS,
   OTHER_OPERATORS,
@@ -122,6 +124,42 @@ describe('parseWktPoint / haversineMeters (US-041 / ADR 0012)', () => {
     const d = haversineMeters(jrtokai, subway)
     expect(d).toBeGreaterThan(100) // > 100m
     expect(d).toBeLessThan(500) // < 500m
+  })
+})
+
+describe('resolveCanonicalLine (US-042 / ADR 0013)', () => {
+  const canonicalSet = new Set(['Q11235139', 'Q11527981', 'Q1078110'])
+
+  it('canonical Q-ID は そのまま返す', () => {
+    expect(resolveCanonicalLine('Q11235139', canonicalSet, null)).toBe('Q11235139')
+    expect(resolveCanonicalLine('Q1078110', canonicalSet, null)).toBe('Q1078110')
+  })
+
+  it('alias Q-ID + 座標 (経度 < 137.4) → 名古屋地区 (Q11235139)', () => {
+    const kanayamaCoord = { lon: 136.9008, lat: 35.1428 }
+    expect(resolveCanonicalLine('Q1190152', canonicalSet, kanayamaCoord)).toBe(
+      'Q11235139',
+    )
+  })
+
+  it('alias Q-ID + 座標 (経度 > 137.4) → 静岡地区 (Q11527981)', () => {
+    const shizuokaCoord = { lon: 138.38, lat: 34.97 } // 静岡駅近辺
+    expect(resolveCanonicalLine('Q1190152', canonicalSet, shizuokaCoord)).toBe(
+      'Q11527981',
+    )
+  })
+
+  it('alias Q-ID + 座標欠落 + 多義候補 → null (採用しない)', () => {
+    expect(resolveCanonicalLine('Q1190152', canonicalSet, null)).toBeNull()
+  })
+
+  it('既知でない Q-ID → null', () => {
+    expect(resolveCanonicalLine('Q-UNKNOWN', canonicalSet, null)).toBeNull()
+  })
+
+  it('LINE_ALIASES に Q1190152 が両 canonical に登録されている', () => {
+    expect(LINE_ALIASES['Q11235139']?.[0]?.qid).toBe('Q1190152')
+    expect(LINE_ALIASES['Q11527981']?.[0]?.qid).toBe('Q1190152')
   })
 })
 
@@ -762,6 +800,85 @@ describe('fetchStationsForLines', () => {
     )
     // 同名でも座標が無いので merge しない
     expect(stations).toHaveLength(2)
+  })
+
+  it('US-042 / ADR 0013: 親 Q-ID 経由でも canonical 路線として取り込まれる (金山駅パターン)', async () => {
+    // 金山駅 (Q124429659) は P81=Q1078110 (中央本線) + P81=Q1190152 (東海道本線 全国)
+    // を持つ。 Q11235139 (東海道線 名古屋地区) には直接紐付いていない。
+    // Q1190152 を Q11235139 のエイリアスとして扱い、名古屋地区の駅として取り込む。
+    const fakeFetcher = async () => [
+      // 中央本線への直接紐付け + 駅番号 CF01 (qualifier=中央本線)
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q124429659' },
+        stationLabel: { value: '金山駅' },
+        coord: { value: 'Point(136.900896666 35.142773333)' },
+        stationCode: { value: 'CF01' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q1078110' },
+        line: { value: 'http://www.wikidata.org/entity/Q1078110' },
+      },
+      // 東海道本線 (親) への紐付け + 駅番号 CA66 (qualifier=東海道本線 = alias)
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q124429659' },
+        stationLabel: { value: '金山駅' },
+        coord: { value: 'Point(136.900896666 35.142773333)' },
+        stationCode: { value: 'CA66' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q1190152' },
+        line: { value: 'http://www.wikidata.org/entity/Q1190152' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q1078110', 'Q11235139'], // 中央本線 + 東海道線 名古屋地区
+      fakeFetcher as never,
+    )
+    expect(stations).toHaveLength(1)
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    // 中央本線: P81 直紐付け + 駅番号 CF01
+    expect(linkMap.get('Q1078110')).toBe('CF01')
+    // 東海道線 名古屋地区: alias Q1190152 経由 + 駅番号 CA66 (qualifier alias 経由)
+    expect(linkMap.get('Q11235139')).toBe('CA66')
+  })
+
+  it('US-042: 静岡側の駅 (経度 > 137.4) は alias 経由でも Q11527981 (静岡地区) に振り分け', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-SHIZUOKA-STN' },
+        stationLabel: { value: '静岡駅' },
+        coord: { value: 'Point(138.3884 34.9722)' }, // 静岡駅周辺 (経度 > 137.4)
+        stationCode: { value: 'CA17' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q1190152' },
+        line: { value: 'http://www.wikidata.org/entity/Q1190152' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q11235139', 'Q11527981'],
+      fakeFetcher as never,
+    )
+    const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
+    // 名古屋地区ではなく静岡地区に入る
+    expect(linkMap.get('Q11527981')).toBe('CA17')
+    expect(linkMap.has('Q11235139')).toBe(false)
+  })
+
+  it('US-042: 座標欠落駅は alias の disambiguation ができないため当該 lineLink が空', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-NOCOORD' },
+        stationLabel: { value: '座標なし駅' },
+        // coord 欠落
+        stationCode: { value: 'XX99' },
+        qLineByP81: { value: 'http://www.wikidata.org/entity/Q1190152' },
+        line: { value: 'http://www.wikidata.org/entity/Q1190152' },
+      },
+    ]
+    const stations = await fetchStationsForLines(
+      ['Q11235139', 'Q11527981'],
+      fakeFetcher as never,
+    )
+    // Q1190152 を canonical に解決できなかった → lineIds 空 → 駅すら取り込まれないか、
+    // 取り込まれても空 lineLink。ここでは「駅自体は acc に作られたが lineIds が空」なので
+    // links が空配列になる。
+    expect(stations).toHaveLength(1)
+    expect(stations[0]!.links).toEqual([])
   })
 
   it('US-039: 完全 unattached 複数路線駅 (qualifier 一切無し + 2 路線) は安全側で空のまま', async () => {
