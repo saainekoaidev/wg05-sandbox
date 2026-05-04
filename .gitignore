@@ -58,3 +58,6 @@ backend/scripts/data/n02/*.zip
 # US-047 / ADR 0017: Wikipedia 駅ナンバリングページの wikitext キャッシュ。
 # 24h TTL で再取得されるためコミットしない。
 backend/scripts/data/wikipedia/*.wikitext
+
+# US-048 / ADR 0018: 個別路線 Wikipedia 記事キャッシュ。7 日 TTL で再取得。
+backend/scripts/data/wikipedia/lines/*.json
