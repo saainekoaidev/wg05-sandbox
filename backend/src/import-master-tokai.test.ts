@@ -10,6 +10,7 @@ import {
   ensureJRPrefix,
   katakanaToHiragana,
   stripEkiSuffix,
+  isLikelyStationNumber,
   JR_LINE_QIDS,
   DENY_LINE_QIDS,
   OTHER_OPERATORS,
@@ -88,6 +89,33 @@ describe('inferKana early-return (US-027)', () => {
   it('空文字は空文字を返す', async () => {
     const { inferKana } = await import('../scripts/import-master-tokai.js')
     expect(await inferKana('')).toBe('')
+  })
+})
+
+describe('isLikelyStationNumber (US-037 / ADR 0009)', () => {
+  it('現代の駅番号 (英数 + 記号) は採用', () => {
+    expect(isLikelyStationNumber('CA68')).toBe(true)
+    expect(isLikelyStationNumber('JY01')).toBe(true)
+    expect(isLikelyStationNumber('CA66/CC00')).toBe(true)
+    expect(isLikelyStationNumber('L-31')).toBe(true)
+    expect(isLikelyStationNumber('A.1')).toBe(true)
+  })
+  it('電報略号 (カタカナ) は除外', () => {
+    expect(isLikelyStationNumber('カカ')).toBe(false)
+    expect(isLikelyStationNumber('オキ')).toBe(false)
+    expect(isLikelyStationNumber('ヲキ')).toBe(false)
+    expect(isLikelyStationNumber('ナヤ')).toBe(false)
+  })
+  it('英数 + カタカナ混在も除外 (filter は AND ではなく英数のみ)', () => {
+    expect(isLikelyStationNumber('CA13カカ')).toBe(false)
+  })
+  it('ひらがな / 漢字 / 全角 を含む値は除外', () => {
+    expect(isLikelyStationNumber('かなやま')).toBe(false)
+    expect(isLikelyStationNumber('名古屋')).toBe(false)
+    expect(isLikelyStationNumber('ABC１')).toBe(false)
+  })
+  it('空文字は false (採用しない)', () => {
+    expect(isLikelyStationNumber('')).toBe(false)
   })
 })
 
@@ -376,6 +404,54 @@ describe('fetchStationsForLines', () => {
     const linkMap = new Map(stations[0]!.links.map((l) => [l.lineId, l.code]))
     expect(linkMap.get('Q-T1')).toBe('CA68')
     expect(linkMap.get('Q-T2')).toBe('CA68')
+  })
+
+  it('US-037: 電報略号 (カタカナ) は code から除外される', async () => {
+    const fakeFetcher = async () => [
+      // 同じ駅×路線で 駅番号 (CA13) と 電報略号 (オキ, ヲキ) が混在するパターン
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OKITSU' },
+        stationLabel: { value: '興津駅' },
+        stationCode: { value: 'CA13' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OKITSU' },
+        stationLabel: { value: '興津駅' },
+        stationCode: { value: 'オキ' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-OKITSU' },
+        stationLabel: { value: '興津駅' },
+        stationCode: { value: 'ヲキ' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T'], fakeFetcher as never)
+    expect(stations[0]!.links).toEqual([{ lineId: 'Q-T', code: 'CA13' }])
+  })
+
+  it('US-037: qualifier 付き code でも電報略号は除外', async () => {
+    const fakeFetcher = async () => [
+      {
+        station: { value: 'http://www.wikidata.org/entity/Q-S' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'CC01' },
+        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+      {
+        // 同じ路線への qualifier 付きカタカナ値
+        station: { value: 'http://www.wikidata.org/entity/Q-S' },
+        stationLabel: { value: '駅' },
+        stationCode: { value: 'カカ' },
+        qualifierLine: { value: 'http://www.wikidata.org/entity/Q-T1' },
+        line: { value: 'http://www.wikidata.org/entity/Q-T1' },
+      },
+    ]
+    const stations = await fetchStationsForLines(['Q-T1'], fakeFetcher as never)
+    expect(stations[0]!.links).toEqual([{ lineId: 'Q-T1', code: 'CC01' }])
   })
 
   it('US-033: 同一 (station, line) ペアに複数 qualifier 付き code は "/" sort 連結', async () => {

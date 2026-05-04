@@ -148,8 +148,51 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
     }
   }, [mode, editId, isAdmin, prefilled, navigate])
 
-  const [formError, setFormError] = useState<string | null>(null)
+  // US-038: エラー位置 (どの input が悪いか) を field 識別子で持たせ、
+  // バナー表示 + 該当 input のハイライト + scroll/focus に使う。
+  // field の規約: 'id' | 'name' | 'kana' | `code:<lineId>` | null (場所特定不能)
+  type FormError = { message: string; field: string | null }
+  const [formError, setFormError] = useState<FormError | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  /**
+   * US-038: エラーをセットして該当 input にスクロール + フォーカス。
+   * field が null (= 場所特定不能なエラー) なら何もしない。
+   */
+  function fail(field: string | null, message: string) {
+    setFormError({ message, field })
+    if (field) {
+      // 次の paint で focus したいので microtask 後に実行
+      queueMicrotask(() => {
+        const el = document.getElementById(fieldDomId(field))
+        if (!el) return
+        // jsdom では scrollIntoView が未実装。ブラウザでだけ実行する。
+        if (typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }
+        if (typeof (el as HTMLElement).focus === 'function') {
+          ;(el as HTMLElement).focus({ preventScroll: true })
+        }
+      })
+    }
+  }
+
+  /** field 識別子 → DOM の id 属性。`code:<lineId>` は line-picker の input を指す。 */
+  function fieldDomId(field: string): string {
+    if (field.startsWith('code:')) {
+      return `line-picker-code-${field.slice('code:'.length)}`
+    }
+    if (field === 'id') return 'form-id'
+    if (field === 'name') return 'form-name'
+    if (field === 'kana') return 'form-kana'
+    return ''
+  }
+
+  /** US-038: input/select に付与するクラスを組み立てる。エラー対象なら is-error を追加。 */
+  function inputClass(field: string, base = ''): string {
+    const isError = formError?.field === field
+    return [base, isError ? 'is-error' : ''].filter(Boolean).join(' ')
+  }
 
   function toggleLine(lineId: string) {
     setFormLineCodes((prev) => {
@@ -179,26 +222,32 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
     setFormError(null)
     if (mode === 'create' && formId) {
       if (!ID_RE.test(formId))
-        return setFormError(
+        return fail(
+          'id',
           'IDは半角英数字 + ハイフン/ドット/アンダースコアのみ使用できます',
         )
       if (formId.length > 80)
-        return setFormError('IDは80文字以内で入力してください')
+        return fail('id', 'IDは80文字以内で入力してください')
     }
-    if (!formName) return setFormError('駅名を入力してください')
+    if (!formName) return fail('name', '駅名を入力してください')
     if (formName.length > 50)
-      return setFormError('駅名は50文字以内で入力してください')
-    if (!formKana) return setFormError('よみがなを入力してください')
+      return fail('name', '駅名は50文字以内で入力してください')
+    if (!formKana) return fail('kana', 'よみがなを入力してください')
     if (formKana.length > 80)
-      return setFormError('よみがなは80文字以内で入力してください')
+      return fail('kana', 'よみがなは80文字以内で入力してください')
 
-    // US-033: 駅番号 (code) のクライアント側検証
-    for (const [, code] of formLineCodes) {
+    // US-033: 駅番号 (code) のクライアント側検証。
+    // US-038: 違反した最初の lineId を field に載せて該当 input を強調する。
+    for (const [lineId, code] of formLineCodes) {
       if (code.length > CODE_MAX) {
-        return setFormError(`駅番号は ${CODE_MAX} 文字以内で入力してください`)
+        return fail(
+          `code:${lineId}`,
+          `駅番号は ${CODE_MAX} 文字以内で入力してください`,
+        )
       }
       if (code && !CODE_RE.test(code)) {
-        return setFormError(
+        return fail(
+          `code:${lineId}`,
           '駅番号は半角英数字 + ハイフン/スラッシュのみ使用できます',
         )
       }
@@ -232,7 +281,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
         return
       }
       if (res.status === 403) {
-        setFormError('管理者権限が必要です')
+        // サーバ側の権限拒否は input 単位の問題ではないので field=null
+        setFormError({ message: '管理者権限が必要です', field: null })
         return
       }
       if (res.status === 400) {
@@ -240,22 +290,30 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
           error?: string
         }
         if (errBody.error === 'unknown_line') {
-          setFormError('紐付けに含まれる路線が存在しません (削除済み?)')
+          setFormError({
+            message: '紐付けに含まれる路線が存在しません (削除済み?)',
+            field: null,
+          })
         } else {
-          setFormError('入力内容に誤りがあります')
+          setFormError({ message: '入力内容に誤りがあります', field: null })
         }
         return
       }
       if (res.status === 404) {
-        setFormError('編集対象の駅が見つかりませんでした (削除済み?)')
+        setFormError({
+          message: '編集対象の駅が見つかりませんでした (削除済み?)',
+          field: null,
+        })
         return
       }
       if (res.status === 409) {
-        setFormError('同じIDの駅が既に登録されています')
-        return
+        return fail('id', '同じIDの駅が既に登録されています')
       }
       if (!res.ok) {
-        setFormError('保存に失敗しました。再度お試しください')
+        setFormError({
+          message: '保存に失敗しました。再度お試しください',
+          field: null,
+        })
         return
       }
       navigate('/admin/stations', {
@@ -265,7 +323,7 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
         },
       })
     } catch {
-      setFormError('保存に失敗しました。再度お試しください')
+      setFormError({ message: '保存に失敗しました。再度お試しください', field: null })
     } finally {
       setSubmitting(false)
     }
@@ -375,7 +433,11 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
       </div>
 
       <form onSubmit={handleSubmit} noValidate>
-        {formError && <div className="banner is-shown">{formError}</div>}
+        {formError && (
+          <div className="banner is-shown" role="alert">
+            {formError.message}
+          </div>
+        )}
 
         {mode === 'edit' && (
           <div className="hint" style={{ marginBottom: 12 }}>
@@ -390,6 +452,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
             <input
               type="text"
               id="form-id"
+              className={inputClass('id')}
+              aria-invalid={formError?.field === 'id' || undefined}
               value={formId}
               onChange={(e) => setFormId(e.target.value)}
               disabled={submitting}
@@ -421,6 +485,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
           <input
             type="text"
             id="form-name"
+            className={inputClass('name')}
+            aria-invalid={formError?.field === 'name' || undefined}
             value={formName}
             onChange={(e) => setFormName(e.target.value)}
             disabled={submitting}
@@ -435,6 +501,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
           <input
             type="text"
             id="form-kana"
+            className={inputClass('kana')}
+            aria-invalid={formError?.field === 'kana' || undefined}
             value={formKana}
             onChange={(e) => setFormKana(e.target.value)}
             disabled={submitting}
@@ -461,6 +529,8 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
               {linesState.lines.map((line: ApiLine) => {
                 const checked = formLineCodes.has(line.id)
                 const code = formLineCodes.get(line.id) ?? ''
+                const codeFieldId = `code:${line.id}`
+                const isCodeError = formError?.field === codeFieldId
                 return (
                   <div key={line.id} className="line-picker__row">
                     {/* US-033: チェック列はチェックボックス本体程度の最小幅 */}
@@ -478,7 +548,11 @@ export function AdminStationForm({ mode }: AdminStationFormProps) {
                     <span className="line-picker__name">{line.name}</span>
                     <input
                       type="text"
-                      className="line-picker__code"
+                      id={`line-picker-code-${line.id}`}
+                      className={
+                        'line-picker__code' + (isCodeError ? ' is-error' : '')
+                      }
+                      aria-invalid={isCodeError || undefined}
                       value={code}
                       onChange={(e) => setLineCode(line.id, e.target.value)}
                       placeholder="駅番号 (例: CA68)"

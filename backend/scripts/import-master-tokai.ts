@@ -162,6 +162,16 @@ export function stripEkiSuffix(kana: string): string {
 }
 
 /**
+ * US-037 / ADR 0009: Wikidata P296 の値が「駅番号」(現代の路線記号 + 数字) かを判定する。
+ * 半角英数 + ハイフン + スラッシュ + ドット + アンダースコアのみで構成される値を採用。
+ * カタカナ/ひらがな/漢字を含む値 (旧国鉄の電報略号: 「カカ」「オキ」「ヲキ」等) は除外する。
+ */
+export function isLikelyStationNumber(code: string): boolean {
+  if (!code) return false
+  return /^[A-Za-z0-9._/-]+$/.test(code)
+}
+
+/**
  * US-027: 駅名 (漢字) からひらがな読みを推測する。失敗時は空文字を返す。
  * - 残ったカタカナはひらがなに変換
  * - 結果に漢字が残っていれば変換失敗とみなして空文字
@@ -377,7 +387,8 @@ SELECT DISTINCT ?station ?stationLabel ?stationKana ?stationCode ?qualifierLine 
     }
     if (targetSet.has(lineQid)) a.lineIds.add(lineQid)
     const codeVal = r.stationCode?.value
-    if (codeVal) {
+    // US-037 / ADR 0009: 電報略号 (カタカナ表記の旧国鉄識別子) は駅番号と区別して除外する
+    if (codeVal && isLikelyStationNumber(codeVal)) {
       const qLine = r.qualifierLine?.value
         ? qidFromUri(r.qualifierLine.value)
         : null

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AdminStationNew, AdminStationEdit } from './AdminStationForm'
@@ -202,7 +202,7 @@ describe('AdminStationNew (US-026 新規作成)', () => {
     expect(codeInput.value).toBe('')
   })
 
-  it('駅名空でフィールドエラー (POST 呼ばれない)', async () => {
+  it('駅名空でフィールドエラー (POST 呼ばれない) + 駅名 input が is-error 強調 (US-038)', async () => {
     const user = userEvent.setup()
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify(ADMIN), { status: 200 }),
@@ -213,6 +213,42 @@ describe('AdminStationNew (US-026 新規作成)', () => {
     await user.click(screen.getByRole('button', { name: '作成する' }))
     expect(screen.getByText('駅名を入力してください')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    // US-038: 駅名 input が is-error クラス + aria-invalid を持つ
+    const nameInput = screen.getByLabelText(/^駅名/) as HTMLInputElement
+    expect(nameInput.className).toMatch(/is-error/)
+    expect(nameInput.getAttribute('aria-invalid')).toBe('true')
+    // よみがな input は影響を受けない
+    const kanaInput = screen.getByLabelText(/よみがな/) as HTMLInputElement
+    expect(kanaInput.className).not.toMatch(/is-error/)
+  })
+
+  it('US-038: 駅番号フォーマットエラー時は該当 line の code input が is-error 強調', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(ADMIN), { status: 200 }),
+    )
+    renderNew()
+    await screen.findByLabelText(/^駅名/)
+    await user.type(screen.getByLabelText(/^駅名/), '名古屋')
+    await user.type(screen.getByLabelText(/よみがな/), 'なごや')
+    // チェック ON にして駅番号 input を有効化
+    await user.click(screen.getByLabelText('JR東海道線 に接続'))
+    const codeInput = screen.getByLabelText(
+      'JR東海道線 の駅番号',
+    ) as HTMLInputElement
+    // fireEvent で全角カタカナを直接セット (US-037 で除外したい値が手で入った想定)
+    fireEvent.change(codeInput, { target: { value: 'カカ' } })
+    await user.click(screen.getByRole('button', { name: '作成する' }))
+
+    // バナー表示
+    expect(
+      screen.getByText(
+        /駅番号は半角英数字 \+ ハイフン\/スラッシュのみ使用できます/,
+      ),
+    ).toBeInTheDocument()
+    // 該当 input が is-error クラス
+    expect(codeInput.className).toMatch(/is-error/)
+    expect(codeInput.getAttribute('aria-invalid')).toBe('true')
   })
 
   it('よみがな空でフィールドエラー', async () => {
