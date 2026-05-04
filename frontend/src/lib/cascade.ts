@@ -1,19 +1,20 @@
 /**
- * 運営会社 (operator) / 種別 (kind) / 路線 (line) の 3 軸セレクトの cascade ルール (US-050 / US-052)。
+ * 運営会社 (operator) / 種別 (kind) / 路線 (line) の 3 軸セレクトの cascade ルール
+ * (US-050 / US-052 → US-053 で非対称化)。
  *
- * - operator を選ぶと kind / line がその operator のものに絞り込まれる
- * - kind を選ぶと operator が紐づくものに自動選択 (候補 1 件時) + line が kind 一致のものに絞り込まれる
- * - line を選ぶと operator と kind がその line の値に hard-set
+ * 階層: operator (上位) > kind (中位) > line (下位)
  *
- * 既存値が新条件と矛盾する場合はクリアする (auto-narrow + clear strategy)。
+ * **US-053**: 上位 → 下位は narrow するが, 下位 → 上位は何もしない (asymmetric)。
+ * - operator 選択: kind / line を operator のものに narrow + 矛盾値クリア
+ * - kind 選択: line を kind に narrow + 矛盾 line クリア。operator には作用しない
+ * - line 選択: 何もせず line だけセット。operator / kind には作用しない
+ * - dropdown 選択肢: operator 常に全件; kind は operator で narrow; line は operator + kind で narrow
  *
- * 設計判断:
- * - 既存値の保持か破棄かは「絞り込み後の選択肢に存在するなら保持, しなければ破棄」で統一
- * - kind→operator の自動選択は候補 1 件のみに限定 (複数候補なら何もしない)
- * - line→operator/kind は線が一意に決まるので必ず hard-set
+ * これにより「下位を先に選んだ場合, 上位はおおむね『すべての○○』が選択された状態」を保つ。
+ * 利用者が下位条件を選んだあと上位を任意に追加で絞り込める。
  *
- * US-052: operator が運営する kinds は Operator.kinds (CascadeOperator.kinds) を SoT とし,
- * 各画面で操作する。空配列の operator は kinds 絞り込みなし (全 kinds と整合とみなす)。
+ * Form 用途 (RouteRegister/RouteEdit segment) で line→kind の hard-set が必要な場合は
+ * 各画面で applyLine 後に手動で kind を補完する (data 整合性責務は cascade ライブラリでは持たない)。
  */
 import type { LineKind } from './lines'
 
@@ -78,7 +79,9 @@ export function applyOperator(
   return next
 }
 
-/** kind を変更したときの新しい state を返す。候補 1 件なら operator 自動選択。 */
+/** kind を変更したときの新しい state を返す。
+ * US-053: kind は operator (上位) には作用しない。line (下位) のみ整合チェック。
+ */
 export function applyKind(
   s: CascadeState,
   kind: '' | LineKind,
@@ -86,26 +89,7 @@ export function applyKind(
 ): CascadeState {
   const next: CascadeState = { ...s, kind }
   if (!kind) return next
-  // 既存 operator が kind を運営しないならクリア
-  if (next.operator) {
-    const opKindSet = operatorKinds(next.operator, data)
-    if (opKindSet && !opKindSet.has(kind)) next.operator = ''
-  }
-  // operator 自動選択 (候補 1 件のみ)
-  if (!next.operator && data.operators) {
-    const cands = data.operators.filter((o) => o.kinds.includes(kind))
-    if (cands.length === 1) next.operator = cands[0]!.id
-  }
-  // operators が無い場合は Line から派生して候補 operator を求める (legacy 互換)
-  if (!next.operator && !data.operators) {
-    const candOps = new Set(
-      data.lines
-        .filter((l) => l.kind === kind && l.operatorId)
-        .map((l) => l.operatorId as string),
-    )
-    if (candOps.size === 1) next.operator = candOps.values().next().value as string
-  }
-  // 既存 line が kind 不一致ならクリア
+  // 既存 line が kind 不一致ならクリア (上位→下位の整合)
   if (next.line) {
     const cur = data.lines.find((l) => l.id === next.line)
     if (!cur || cur.kind !== kind) next.line = ''
@@ -113,45 +97,25 @@ export function applyKind(
   return next
 }
 
-/** line を変更したときの新しい state を返す。operator と kind を hard-set。 */
+/** line を変更したときの新しい state を返す。
+ * US-053: line は operator/kind (上位) には作用しない。
+ * data 整合性が必要な form 画面 (route segment) では呼出側で kind を補完する。
+ */
 export function applyLine(
   s: CascadeState,
   lineId: string,
-  data: CascadeData,
+  _data: CascadeData,
 ): CascadeState {
-  const next: CascadeState = { ...s, line: lineId }
-  if (!lineId) return next
-  const line = data.lines.find((l) => l.id === lineId)
-  if (!line) return next
-  next.kind = line.kind
-  if (line.operatorId) next.operator = line.operatorId
-  return next
+  return { ...s, line: lineId }
 }
 
-/** operator フィルタの dropdown に出すべき operator id 集合 (kind / line と整合するもの)。 */
+/** operator dropdown に出すべき operator id 集合。
+ * US-053: kind / line (下位) は operator (上位) に作用しないため, 常に全 operator を返す。
+ */
 export function visibleOperatorIds(
-  s: Pick<CascadeState, 'kind' | 'line'>,
+  _s: Pick<CascadeState, 'kind' | 'line'>,
   data: CascadeData,
 ): Set<string> {
-  if (s.line) {
-    const cur = data.lines.find((l) => l.id === s.line)
-    return new Set(cur?.operatorId ? [cur.operatorId] : [])
-  }
-  if (s.kind) {
-    if (data.operators) {
-      // US-052: Operator.kinds で判定
-      return new Set(
-        data.operators.filter((o) => o.kinds.includes(s.kind as LineKind)).map((o) => o.id),
-      )
-    }
-    // legacy: Line から派生
-    return new Set(
-      data.lines
-        .filter((l) => l.kind === s.kind && l.operatorId)
-        .map((l) => l.operatorId as string),
-    )
-  }
-  // 制約なし: operators が指定されていればその全集合, でなければ Line にある operator
   if (data.operators) return new Set(data.operators.map((o) => o.id))
   return new Set(
     data.lines.filter((l) => l.operatorId).map((l) => l.operatorId as string),
