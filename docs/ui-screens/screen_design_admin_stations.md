@@ -9,8 +9,8 @@
 | 概要 | 管理者が駅マスタ (Station) と接続路線 (StationLine) を一括で管理する画面 |
 | URL | `/admin/stations` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036 |
-| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持) |
+| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038 |
+| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外) |
 
 ---
 
@@ -57,6 +57,10 @@ US-034: フィルタの選択値は sessionStorage (key: `admin-stations-filter`
 US-035: 「接続路線 / 駅番号」入力リスト (.line-picker) の grid 列幅を `auto / auto / minmax(0,1fr) / 9em` とし, 路線名は `white-space: nowrap` で 1 行強制 + 必要なら `text-overflow: ellipsis` で省略, 駅番号 input は 9em (CA68 等の短いコードに十分) に制限する。
 
 US-036: 一覧表の駅名 / よみがなセルは `white-space: nowrap` で 1 行表示。接続路線セルは `tag-row` 内で `flex-wrap: wrap` を許容し, タグ数が増えたときだけ高さが広がるよう調整する。
+
+US-037: import-master-tokai.ts で Wikidata P296 値のうち半角英数 + ハイフン/スラッシュ/ドット/アンダースコアのみで構成される値だけを `StationLine.code` に採用する。電報略号 (カタカナ表記の旧国鉄識別子: 例「カカ」「オキ」) は除外。詳細は ADR 0009。
+
+US-038: 駅マスタの新規/編集画面の入力欄 (ID/駅名/よみがな/駅番号) のいずれかでバリデーションエラーが発生した時, 対象 input/select に `aria-invalid="true"` + `.is-error` クラスを付与し赤枠で強調する。送信ハンドラは該当要素に `scrollIntoView({ block: 'center' })` + `focus()` を行う。
 
 ---
 

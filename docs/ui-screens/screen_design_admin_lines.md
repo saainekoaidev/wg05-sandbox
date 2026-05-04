@@ -9,7 +9,7 @@
 | 概要 | 管理者が路線マスタ (Line) を一覧表示・新規作成・編集・削除する画面 |
 | URL | `/admin/lines` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-012, US-025, US-028, US-029, US-031, US-034 |
+| 関連US | US-012, US-025, US-028, US-029, US-031, US-034, US-038 |
 | 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性) |
 
 ---
@@ -48,6 +48,8 @@
 US-031: 一覧上部に「種別」フィルタ (`すべて / 電車 / 地下鉄 / バス / その他`) を設置する。クライアント側の filter で表示行を絞り込む (件数が多くないので server filter は導入しない)。
 
 US-034: フィルタの選択値は sessionStorage (key: `admin-lines-filter`) に保存し, `/admin/lines/new` や `/admin/lines/:id/edit` から戻ってきたときに復元する。画面 mount 時に再 fetch を行うため復元と同時に最新状態が表示される。
+
+US-038: 路線マスタの新規/編集画面の入力欄 (ID/路線名/種別/運営会社) のいずれかでバリデーションエラーが発生した時, 対象 input/select に `aria-invalid="true"` + `.is-error` クラスを付与し赤枠で強調する。送信ハンドラは該当要素に scroll + focus を行う。
 
 ---
 
