@@ -910,6 +910,13 @@ export async function cleanImported(): Promise<{
 async function main() {
   const args = process.argv.slice(2)
   const clean = args.includes('--clean')
+  // US-047: N02 取り込み (US-045) は US-046 用先行基盤としてデフォルト無効。
+  // --with-n02 で明示的に有効化する。
+  const withN02 = args.includes('--with-n02')
+  // US-047: 既存 N02 由来駅を削除する独立フラグ。--clean とは別に動作可能。
+  const cleanN02 = args.includes('--clean-n02')
+  // US-047: Wikipedia 駅ナンバリング取り込みはデフォルト ON。--no-wikipedia-numbering で無効化。
+  const noWikipediaNumbering = args.includes('--no-wikipedia-numbering')
 
   const startedAt = Date.now()
   // eslint-disable-next-line no-console
@@ -920,12 +927,31 @@ async function main() {
   )
   // eslint-disable-next-line no-console
   console.log(`Prefectures: 4 (愛知, 岐阜, 三重, 静岡)`)
+  // eslint-disable-next-line no-console
+  console.log(
+    `Flags: ${[
+      clean && '--clean',
+      cleanN02 && '--clean-n02',
+      withN02 && '--with-n02',
+      noWikipediaNumbering && '--no-wikipedia-numbering',
+    ]
+      .filter(Boolean)
+      .join(' ') || '(none)'}`,
+  )
 
   if (clean) {
     const cleaned = await cleanImported()
     // eslint-disable-next-line no-console
     console.log(
       `\n[--clean] Wikidata 由来分を削除: Line ${cleaned.deletedLines} / Station ${cleaned.deletedStations}`,
+    )
+  }
+
+  if (cleanN02) {
+    const cleanedN02 = await cleanN02Imported()
+    // eslint-disable-next-line no-console
+    console.log(
+      `\n[--clean-n02] N02 由来駅を削除: Station ${cleanedN02.deletedStations}`,
     )
   }
 
@@ -972,20 +998,134 @@ async function main() {
     `  Stations: created ${stationRes.created} / updated ${stationRes.updated} / StationLine ${stationRes.links}`,
   )
 
-  // US-045 / ADR 0016: 国土数値情報 N02 (鉄道) GeoJSON で補完取り込み (キャッシュがあれば)
-  // eslint-disable-next-line no-console
-  console.log('\nSupplementing with 国土数値情報 N02 (US-045)...')
-  await supplementWithN02()
+  if (withN02) {
+    // US-045 / ADR 0016: 国土数値情報 N02 で補完取り込み (US-046 経路機能用先行基盤)
+    // eslint-disable-next-line no-console
+    console.log('\nSupplementing with 国土数値情報 N02 (US-045 / --with-n02)...')
+    await supplementWithN02()
+  }
+
+  if (!noWikipediaNumbering) {
+    // US-047 / ADR 0017: Wikipedia 駅ナンバリングページから駅番号を本格補完
+    // eslint-disable-next-line no-console
+    console.log('\nSupplementing 駅番号 from Wikipedia ナンバリング (US-047)...')
+    await supplementFromWikipediaNumbering()
+  }
 
   // US-044 / ADR 0015 §C: 駅番号未付番の lineLink を audit レポートとして出力する。
   // eslint-disable-next-line no-console
-  console.log('\nWriting audit report (US-044)...')
+  console.log('\nWriting audit report (US-044/047)...')
   await writeAuditReport()
 
   // eslint-disable-next-line no-console
   console.log(
     `\nDone in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`,
   )
+}
+
+/**
+ * US-047 / ADR 0017: N02 由来駅 (sourceUri に nlftp.mlit.go.jp を含む Station) を全削除。
+ * --clean-n02 フラグで明示的に呼び出される。
+ */
+async function cleanN02Imported(): Promise<{ deletedStations: number }> {
+  const res = await prisma.station.deleteMany({
+    where: { sourceUri: { contains: 'nlftp.mlit.go.jp' } },
+  })
+  return { deletedStations: res.count }
+}
+
+/**
+ * US-047 / ADR 0017: Wikipedia 駅ナンバリングページから駅番号を取得して
+ * 既存 lineLink の空 code を埋める。
+ */
+async function supplementFromWikipediaNumbering(): Promise<void> {
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const cacheDir = path.join(here, 'data', 'wikipedia')
+
+  const {
+    fetchWikipediaNumberingWikitext,
+    parseWikipediaNumbering,
+    planWikipediaFills,
+    normalizeWikipediaStationName,
+  } = await import('./lib/wikipedia-numbering.js')
+
+  let wikitext: string
+  try {
+    wikitext = await fetchWikipediaNumberingWikitext(cacheDir)
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('  [Wikipedia] fetch failed, skipping:', (e as Error).message)
+    return
+  }
+  // eslint-disable-next-line no-console
+  console.log(`  Wikipedia wikitext loaded: ${wikitext.length.toLocaleString()} chars`)
+
+  const entries = parseWikipediaNumbering(wikitext)
+  // eslint-disable-next-line no-console
+  console.log(`  Parsed numbering entries: ${entries.length}`)
+
+  if (entries.length === 0) return
+
+  // ADR 0011 の prefix 学習を取り込み済 DB から復元する
+  const lines = await prisma.line.findMany({
+    where: { sourceUri: { not: null } },
+    include: { stationLinks: { select: { code: true } } },
+  })
+  const prefixesByLine = new Map<string, Set<string>>()
+  for (const l of lines) {
+    const set = new Set<string>()
+    for (const sl of l.stationLinks) {
+      if (!sl.code) continue
+      // code から英字 prefix
+      const m = sl.code.match(/^([A-Za-z]+)/)
+      if (m && m[1]) set.add(m[1].toUpperCase())
+    }
+    if (set.size > 0) prefixesByLine.set(l.id, set)
+  }
+
+  // 既存 station + lineLinks を取得
+  const stations = await prisma.station.findMany({
+    where: { sourceUri: { not: null } },
+    include: {
+      lineLinks: { select: { lineId: true, code: true } },
+    },
+  })
+  const stationsByName = new Map<
+    string,
+    Array<{
+      id: string
+      lineLinks: Array<{ lineId: string; code: string }>
+    }>
+  >()
+  for (const s of stations) {
+    const key = normalizeWikipediaStationName(s.name)
+    const arr = stationsByName.get(key) ?? []
+    arr.push({ id: s.id, lineLinks: s.lineLinks })
+    stationsByName.set(key, arr)
+  }
+
+  const fills = planWikipediaFills(entries, prefixesByLine, stationsByName)
+  // eslint-disable-next-line no-console
+  console.log(`  Wikipedia fill plans: ${fills.length}`)
+
+  let applied = 0
+  for (const f of fills) {
+    try {
+      await prisma.stationLine.update({
+        where: {
+          stationId_lineId: { stationId: f.stationId, lineId: f.lineId },
+        },
+        data: { code: f.code },
+      })
+      applied++
+    } catch {
+      // 同時に削除された等のケースは無視
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.log(`  Wikipedia codes filled: ${applied}`)
 }
 
 /**
@@ -1127,37 +1267,52 @@ async function writeAuditReport(): Promise<void> {
   const { fileURLToPath } = await import('node:url')
 
   const here = path.dirname(fileURLToPath(import.meta.url))
-  // backend/scripts/ から repo root に上がる
   const repoRoot = path.resolve(here, '..', '..')
   const outDir = path.join(repoRoot, 'docs', 'audit')
   const outPath = path.join(outDir, 'missing-station-codes.md')
   await fs.mkdir(outDir, { recursive: true })
 
+  // US-047 / ADR 0017 §C: ソース別 (Wikidata 由来 / N02 由来) に分離して集計する。
+  // sourceUri に "wikidata" / "nlftp.mlit.go.jp" を含むかで判定。
+  const allLinks = await prisma.stationLine.findMany({
+    where: { line: { sourceUri: { not: null } } },
+    include: { station: true, line: true },
+    orderBy: [{ station: { name: 'asc' } }, { line: { name: 'asc' } }],
+  })
+
+  const isWikidataStation = (uri: string | null) =>
+    !!uri && uri.includes('wikidata.org')
+  const isN02Station = (uri: string | null) =>
+    !!uri && uri.includes('nlftp.mlit.go.jp')
+
+  const totalLink = allLinks.length
+  const withCodeLinks = allLinks.filter((l) => l.code !== '')
+  const missingLinks = allLinks.filter((l) => l.code === '')
+
+  const wikidataMissing = missingLinks.filter((l) =>
+    isWikidataStation(l.station.sourceUri),
+  )
+  const n02Missing = missingLinks.filter((l) =>
+    isN02Station(l.station.sourceUri),
+  )
+  const otherMissing = missingLinks.filter(
+    (l) =>
+      !isWikidataStation(l.station.sourceUri) &&
+      !isN02Station(l.station.sourceUri),
+  )
+
   const totalStation = await prisma.station.count({
     where: { sourceUri: { not: null } },
   })
-  const totalLink = await prisma.stationLine.count({
-    where: { line: { sourceUri: { not: null } } },
+  const wikidataStationCount = await prisma.station.count({
+    where: { sourceUri: { contains: 'wikidata.org' } },
   })
-  const withCode = await prisma.stationLine.count({
-    where: {
-      code: { not: '' },
-      line: { sourceUri: { not: null } },
-    },
-  })
-  const missing = await prisma.stationLine.findMany({
-    where: {
-      code: '',
-      line: { sourceUri: { not: null } },
-    },
-    include: { station: true, line: true },
-    orderBy: [
-      { station: { name: 'asc' } },
-      { line: { name: 'asc' } },
-    ],
+  const n02StationCount = await prisma.station.count({
+    where: { sourceUri: { contains: 'nlftp.mlit.go.jp' } },
   })
 
-  const pct = totalLink === 0 ? 0 : Math.round((withCode / totalLink) * 1000) / 10
+  const pct =
+    totalLink === 0 ? 0 : Math.round((withCodeLinks.length / totalLink) * 1000) / 10
   const now = new Date().toISOString()
 
   const lines: string[] = []
@@ -1171,39 +1326,49 @@ async function writeAuditReport(): Promise<void> {
   )
   lines.push('')
   lines.push(`- 生成日時: \`${now}\``)
-  lines.push(`- 取り込み済 Station 件数 (Wikidata 由来): **${totalStation}**`)
-  lines.push(`- 取り込み済 StationLine 件数: **${totalLink}**`)
-  lines.push(`- 駅番号付番済 link: **${withCode}** (${pct}%)`)
-  lines.push(`- 未付番 link: **${missing.length}**`)
-  lines.push('')
-  lines.push('## 主な未付番要因')
-  lines.push('')
+  lines.push(`- 取り込み済 Station: **${totalStation}**`)
+  lines.push(`  - うち Wikidata 由来: ${wikidataStationCount}`)
   lines.push(
-    '取り込みは ADR 0007 で凍結したスコープ (JR 14 路線 + OTHER_OPERATORS 5 社) に限定されている。残った未付番 link は主に以下の理由で自動補完できないもの:',
+    `  - うち N02 由来 (US-046 経路機能用先行基盤, --with-n02 指定時のみ): ${n02StationCount}`,
   )
-  lines.push('')
+  lines.push(`- 取り込み済 StationLine: **${totalLink}**`)
   lines.push(
-    '1. Wikidata の P296 (driver code) statement そのものが未登録 (例: JR名古屋駅 = P296 が "ナコ" 電報略号のみで CA68 等の現代駅番号が未登録)',
+    `- 駅番号付番済: **${withCodeLinks.length}** (${pct}% of total)`,
   )
   lines.push(
-    '2. P296 が登録されているが qualifier (P81/P518) で路線特定情報がなく, 複数路線駅では prefix 推定でも判定できない (ADR 0011 §3 ambiguous fallback)',
+    `- 未付番: **${missingLinks.length}** (= Wikidata: ${wikidataMissing.length} + N02: ${n02Missing.length} + 手動/その他: ${otherMissing.length})`,
   )
-  lines.push(
-    '3. 電報略号 (カタカナ) のみの駅 (ADR 0009 で正しく除外されたためここに残る)',
-  )
+  lines.push('')
+  lines.push('## 解釈')
   lines.push('')
   lines.push(
-    '本リストは upstream Wikidata 編集者への修正依頼の根拠データとしても利用できる。',
+    '- **Wikidata 由来駅 (補完対象)**: Wikipedia 駅ナンバリングページ (US-047) や Wikidata upstream 修正で改善できる可能性あり。本レポートの主目的はこのリストの可視化。',
+  )
+  lines.push(
+    '- **N02 由来駅 (構造的に欠落)**: 国土数値情報 N02 GeoJSON には駅番号 (P296相当) が含まれないため, 自動補完で付番不能。座標確保のための取り込みなので空のまま (US-046 経路機能で利用)。',
   )
   lines.push('')
-  lines.push('## 未付番リスト')
+  lines.push('## Wikidata 由来駅で未付番のもの (要対応)')
   lines.push('')
-  if (missing.length === 0) {
-    lines.push('(該当なし — すべての lineLink に駅番号が付番されています)')
+  lines.push('主な原因:')
+  lines.push(
+    '1. Wikidata の P296 statement そのものが未登録 (例: JR名古屋駅 = P296 が "ナコ" 電報略号のみで CA68 等の現代駅番号が未登録)',
+  )
+  lines.push(
+    '2. P296 は登録されているが qualifier (P81/P518) も Wikipedia ナンバリングにも掲載がなく特定不能',
+  )
+  lines.push(
+    '3. 電報略号 (カタカナ) のみの駅 (ADR 0009 で正しく除外)',
+  )
+  lines.push('')
+  if (wikidataMissing.length === 0) {
+    lines.push('(該当なし — すべての Wikidata 由来 lineLink に駅番号が付番されています)')
   } else {
+    lines.push(`### リスト (${wikidataMissing.length} 件)`)
+    lines.push('')
     lines.push('| 駅名 | よみがな | 路線 | 種別 | 駅 Q-ID | 路線 Q-ID |')
     lines.push('| --- | --- | --- | --- | --- | --- |')
-    for (const m of missing) {
+    for (const m of wikidataMissing) {
       const cells = [
         m.station.name,
         m.station.kana || '-',
@@ -1216,11 +1381,46 @@ async function writeAuditReport(): Promise<void> {
     }
   }
   lines.push('')
+  lines.push('## N02 由来駅 (構造的に駅番号無し, US-046 用)')
+  lines.push('')
+  if (n02Missing.length === 0) {
+    lines.push('(--with-n02 が無効なので該当なし)')
+  } else {
+    lines.push(
+      `${n02Missing.length} 件あります。N02 GeoJSON は駅番号を含まないため, この一覧の駅は自動補完不能で意図的に空のまま。 US-046 (経路自動取得) で座標利用のために存在します。`,
+    )
+    lines.push('')
+    lines.push('| 駅名 | よみがな | 路線 | 種別 | Station ID |')
+    lines.push('| --- | --- | --- | --- | --- |')
+    for (const m of n02Missing) {
+      const cells = [
+        m.station.name,
+        m.station.kana || '-',
+        m.line.name,
+        m.line.kind,
+        `\`${m.station.id}\``,
+      ]
+      lines.push(`| ${cells.join(' | ')} |`)
+    }
+  }
+  if (otherMissing.length > 0) {
+    lines.push('')
+    lines.push('## その他の未付番駅 (手動作成 等)')
+    lines.push('')
+    lines.push('| 駅名 | 路線 | Station ID |')
+    lines.push('| --- | --- | --- |')
+    for (const m of otherMissing) {
+      lines.push(
+        `| ${m.station.name} | ${m.line.name} | \`${m.station.id}\` |`,
+      )
+    }
+  }
+  lines.push('')
 
   await fs.writeFile(outPath, lines.join('\n'), 'utf8')
   // eslint-disable-next-line no-console
   console.log(
-    `  Audit report written: ${path.relative(repoRoot, outPath)} (${missing.length} missing entries)`,
+    `  Audit report written: ${path.relative(repoRoot, outPath)} (Wikidata missing=${wikidataMissing.length}, N02 missing=${n02Missing.length})`,
   )
 }
 
