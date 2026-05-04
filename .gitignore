@@ -54,3 +54,7 @@ test-results/
 # 国交省ライセンス再配布の都合もあるため git に含めない。README の手順で各自取得。
 backend/scripts/data/n02/*.geojson
 backend/scripts/data/n02/*.zip
+
+# US-047 / ADR 0017: Wikipedia 駅ナンバリングページの wikitext キャッシュ。
+# 24h TTL で再取得されるためコミットしない。
+backend/scripts/data/wikipedia/*.wikitext
