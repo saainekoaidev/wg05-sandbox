@@ -3,6 +3,13 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useLines, type LineKind } from '../lib/lines'
 import { useOperators } from '../lib/operators'
+import {
+  applyKind,
+  applyLine,
+  applyOperator,
+  visibleLines,
+  visibleOperatorIds,
+} from '../lib/cascade'
 import { useSession } from '../lib/auth'
 
 type ApiUser = {
@@ -166,21 +173,72 @@ export function AdminStations() {
   const linesState = useLines({ enabled: isAdmin })
   const operatorsState = useOperators({ enabled: isAdmin })
   const initialFilter = useMemo(() => readAdminStationsFilter(), [])
-  const [kindFilter, setKindFilter] = useState<'' | LineKind>(
-    initialFilter.kind,
-  )
+  const [operatorFilter, setOperatorFilter] = useState<string>(initialFilter.operator)
+  const [kindFilter, setKindFilter] = useState<'' | LineKind>(initialFilter.kind)
   const [lineFilter, setLineFilter] = useState<string>(initialFilter.line)
-  /// US-049: 運営会社フィルタ。
-  const [operatorFilter, setOperatorFilter] = useState<string>(
-    initialFilter.operator,
-  )
   useEffect(() => {
     writeAdminStationsFilter({
+      operator: operatorFilter,
       kind: kindFilter,
       line: lineFilter,
-      operator: operatorFilter,
     })
-  }, [kindFilter, lineFilter, operatorFilter])
+  }, [operatorFilter, kindFilter, lineFilter])
+
+  // US-050: cascade 用データ
+  const cascadeData = useMemo(
+    () => ({
+      lines: (linesState.lines ?? []).map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        operatorId: l.operatorId,
+      })),
+    }),
+    [linesState.lines],
+  )
+
+  function onChangeOperator(op: string) {
+    const next = applyOperator(
+      { operator: operatorFilter, kind: kindFilter, line: lineFilter },
+      op,
+      cascadeData,
+    )
+    setOperatorFilter(next.operator)
+    setKindFilter(next.kind)
+    setLineFilter(next.line)
+  }
+  function onChangeKind(k: '' | LineKind) {
+    const next = applyKind(
+      { operator: operatorFilter, kind: kindFilter, line: lineFilter },
+      k,
+      cascadeData,
+    )
+    setOperatorFilter(next.operator)
+    setKindFilter(next.kind)
+    setLineFilter(next.line)
+  }
+  function onChangeLine(lineId: string) {
+    const next = applyLine(
+      { operator: operatorFilter, kind: kindFilter, line: lineFilter },
+      lineId,
+      cascadeData,
+    )
+    setOperatorFilter(next.operator)
+    setKindFilter(next.kind)
+    setLineFilter(next.line)
+  }
+
+  const visibleOpIds = useMemo(
+    () => visibleOperatorIds({ kind: kindFilter, line: lineFilter }, cascadeData),
+    [kindFilter, lineFilter, cascadeData],
+  )
+  const visibleLineList = useMemo(
+    () =>
+      visibleLines(
+        { operator: operatorFilter, kind: kindFilter },
+        linesState.lines ?? [],
+      ),
+    [operatorFilter, kindFilter, linesState.lines],
+  )
 
   const filteredStations = useMemo(() => {
     if (!stations) return null
@@ -366,23 +424,31 @@ export function AdminStations() {
 
         {stations && stations.length > 0 && (
           <>
-            {/* US-032: 種別 + 路線フィルタ (cascade) */}
+            {/* US-050: 運営会社 → 種別 → 路線 の順でフィルタ。cascade 連動。 */}
             <div className="search-row" style={{ marginBottom: 16 }}>
+              <div className="group group--narrow">
+                <label htmlFor="admin-stns-operator">運営会社</label>
+                <select
+                  id="admin-stns-operator"
+                  value={operatorFilter}
+                  onChange={(e) => onChangeOperator(e.target.value)}
+                >
+                  <option value="">すべての会社</option>
+                  {(operatorsState.operators ?? [])
+                    .filter((op) => visibleOpIds.size === 0 || visibleOpIds.has(op.id))
+                    .map((op) => (
+                      <option key={op.id} value={op.id}>
+                        {op.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
               <div className="group group--narrow">
                 <label htmlFor="admin-stns-kind">種別</label>
                 <select
                   id="admin-stns-kind"
                   value={kindFilter}
-                  onChange={(e) => {
-                    const newKind = e.target.value as '' | LineKind
-                    setKindFilter(newKind)
-                    if (newKind && lineFilter) {
-                      const cur = (linesState.lines ?? []).find(
-                        (l) => l.id === lineFilter,
-                      )
-                      if (cur && cur.kind !== newKind) setLineFilter('')
-                    }
-                  }}
+                  onChange={(e) => onChangeKind(e.target.value as '' | LineKind)}
                 >
                   <option value="">すべて</option>
                   <option value="train">電車</option>
@@ -396,38 +462,12 @@ export function AdminStations() {
                 <select
                   id="admin-stns-line"
                   value={lineFilter}
-                  onChange={(e) => {
-                    const newLine = e.target.value
-                    setLineFilter(newLine)
-                    if (newLine) {
-                      const cur = (linesState.lines ?? []).find(
-                        (l) => l.id === newLine,
-                      )
-                      if (cur) setKindFilter(cur.kind)
-                    }
-                  }}
+                  onChange={(e) => onChangeLine(e.target.value)}
                 >
                   <option value="">すべての路線</option>
-                  {(linesState.lines ?? [])
-                    .filter((l) => !kindFilter || l.kind === kindFilter)
-                    .map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div className="group group--narrow">
-                <label htmlFor="admin-stns-operator">運営会社</label>
-                <select
-                  id="admin-stns-operator"
-                  value={operatorFilter}
-                  onChange={(e) => setOperatorFilter(e.target.value)}
-                >
-                  <option value="">すべての会社</option>
-                  {(operatorsState.operators ?? []).map((op) => (
-                    <option key={op.id} value={op.id}>
-                      {op.name}
+                  {visibleLineList.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
                     </option>
                   ))}
                 </select>

@@ -385,26 +385,7 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
           />
         </div>
 
-        <div className="group">
-          <label htmlFor="form-kind">
-            種別<span className="req">必須</span>
-          </label>
-          <select
-            id="form-kind"
-            className={inputClass('kind')}
-            aria-invalid={formError?.field === 'kind' || undefined}
-            value={formKind}
-            onChange={(e) => setFormKind(e.target.value as LineKind)}
-            disabled={submitting}
-          >
-            {KIND_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
+        {/* US-050: 運営会社 → 種別 の順 */}
         <div className="group">
           <label htmlFor="form-operatorId">運営会社</label>
           <select
@@ -432,6 +413,26 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
             一覧にない場合は{' '}
             <Link to="/admin/operators/new">運営会社マスタ管理</Link> で追加してください。
           </div>
+        </div>
+
+        <div className="group">
+          <label htmlFor="form-kind">
+            種別<span className="req">必須</span>
+          </label>
+          <select
+            id="form-kind"
+            className={inputClass('kind')}
+            aria-invalid={formError?.field === 'kind' || undefined}
+            value={formKind}
+            onChange={(e) => setFormKind(e.target.value as LineKind)}
+            disabled={submitting}
+          >
+            {KIND_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="actions">

@@ -7,13 +7,24 @@ import {
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
-import { useLines, KIND_OPTIONS, type LineKind } from '../lib/lines'
+import { useLines, type LineKind } from '../lib/lines'
+import { useOperators } from '../lib/operators'
+import {
+  applyKind,
+  applyLine,
+  applyOperator,
+  visibleLines,
+  visibleOperatorIds,
+  type CascadeData,
+} from '../lib/cascade'
 
 // ---------- 型 ----------
 
 type SegmentField = 'fromStation' | 'toStation'
 
 type Segment = {
+  /** US-050: UI 専用 (operator 絞り込み)。API には送らない。 */
+  operator: string
   kind: LineKind
   lineId: string // '' = 未選択 (送信時 null に変換)
   fromStation: string
@@ -70,6 +81,7 @@ const STATION_PICKER_NAME = 'wg05-station-picker'
 
 function toFormSegment(s: ApiSegment): Segment {
   return {
+    operator: '',
     kind: s.kind,
     lineId: s.lineId ?? '',
     fromStation: s.fromStation,
@@ -118,6 +130,34 @@ export function RouteEdit() {
   const [submitting, setSubmitting] = useState(false)
   const [pendingTarget, setPendingTarget] = useState<PendingTarget | null>(null)
   const linesState = useLines({ enabled: !!session })
+  const operatorsState = useOperators({ enabled: !!session })
+
+  // US-050: cascade 用データ
+  const cascadeData: CascadeData = useMemo(
+    () => ({
+      lines: (linesState.lines ?? []).map((l) => ({
+        id: l.id,
+        kind: l.kind,
+        operatorId: l.operatorId,
+      })),
+    }),
+    [linesState.lines],
+  )
+
+  function patchCascade(idx: number, fn: (s: { operator: string; kind: LineKind; line: string }) => { operator: string; kind: '' | LineKind; line: string }) {
+    setSegments((prev) =>
+      prev.map((seg, i) => {
+        if (i !== idx) return seg
+        const next = fn({ operator: seg.operator, kind: seg.kind, line: seg.lineId })
+        return {
+          ...seg,
+          operator: next.operator,
+          kind: next.kind || seg.kind,
+          lineId: next.line,
+        }
+      }),
+    )
+  }
 
   // 駅選択 popup からの postMessage 受信
   useEffect(() => {
@@ -276,7 +316,7 @@ export function RouteEdit() {
     if (segments.length >= MAX_SEGMENTS) return
     setSegments((prev) => [
       ...prev,
-      { kind: 'train', lineId: '', fromStation: '', toStation: '', fareInput: '' },
+      { operator: '', kind: 'train', lineId: '', fromStation: '', toStation: '', fareInput: '' },
     ])
     setErrors((prev) => ({
       ...prev,
@@ -298,9 +338,10 @@ export function RouteEdit() {
   // memoization 連鎖を組んでいない現状ではコスト無視できる。
   function openStationPicker(segmentIndex: number, field: SegmentField) {
     setPendingTarget({ segmentIndex, field })
-    // US-016: 区間で選択済みの種別/路線を popup に引き継ぐ
+    // US-016 / US-050: 区間で選択済みの運営会社/種別/路線を popup に引き継ぐ
     const seg = segments[segmentIndex]
     const params = new URLSearchParams()
+    if (seg?.operator) params.set('operator', seg.operator)
     if (seg?.kind) params.set('kind', seg.kind)
     if (seg?.lineId) params.set('line', seg.lineId)
     const url = params.toString()
@@ -488,6 +529,33 @@ export function RouteEdit() {
               <div className="segment-card" key={idx}>
                 <div className="segment-card-head">
                   <div className="segment-no">{String(idx + 1).padStart(2, '0')}</div>
+                  {/* US-050: 運営会社 → 種別 → 路線 順 + cascade */}
+                  <div className="group group--narrow">
+                    <label>運営会社</label>
+                    <select
+                      aria-label={`区間${idx + 1} 運営会社`}
+                      value={seg.operator}
+                      onChange={(e) =>
+                        patchCascade(idx, (s) => applyOperator(s, e.target.value, cascadeData))
+                      }
+                      disabled={submitting}
+                    >
+                      <option value="">(指定なし)</option>
+                      {(operatorsState.operators ?? [])
+                        .filter((op) => {
+                          const ids = visibleOperatorIds(
+                            { kind: seg.kind, line: seg.lineId },
+                            cascadeData,
+                          )
+                          return ids.size === 0 || ids.has(op.id)
+                        })
+                        .map((op) => (
+                          <option key={op.id} value={op.id}>
+                            {op.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
                   <div className="group group--narrow">
                     <label>
                       種別<span className="req">必須</span>
@@ -495,21 +563,17 @@ export function RouteEdit() {
                     <select
                       aria-label={`区間${idx + 1} 種別`}
                       value={seg.kind}
-                      onChange={(e) => {
-                        // US-020: 種別変更で現在の路線が新種別と矛盾するならクリア
-                        const newKind = e.target.value as LineKind
-                        const cur = (linesState.lines ?? []).find(
-                          (l) => l.id === seg.lineId,
+                      onChange={(e) =>
+                        patchCascade(idx, (s) =>
+                          applyKind(s, e.target.value as LineKind, cascadeData),
                         )
-                        const patch: Partial<Segment> = { kind: newKind }
-                        if (cur && cur.kind !== newKind) patch.lineId = ''
-                        updateSegment(idx, patch)
-                      }}
+                      }
                       disabled={submitting}
                     >
-                      {KIND_OPTIONS.map((k) => (
-                        <option key={k.value} value={k.value}>{k.label}</option>
-                      ))}
+                      <option value="train">電車</option>
+                      <option value="subway">地下鉄</option>
+                      <option value="bus">バス</option>
+                      <option value="other">その他</option>
                     </select>
                   </div>
                   <div className="group">
@@ -517,25 +581,20 @@ export function RouteEdit() {
                     <select
                       aria-label={`区間${idx + 1} 路線名`}
                       value={seg.lineId}
-                      onChange={(e) => {
-                        // US-020: 路線変更でその路線の kind を種別に自動セット
-                        const newLineId = e.target.value
-                        const cur = (linesState.lines ?? []).find(
-                          (l) => l.id === newLineId,
-                        )
-                        const patch: Partial<Segment> = { lineId: newLineId }
-                        if (cur) patch.kind = cur.kind
-                        updateSegment(idx, patch)
-                      }}
+                      onChange={(e) =>
+                        patchCascade(idx, (s) => applyLine(s, e.target.value, cascadeData))
+                      }
                       disabled={submitting}
                     >
                       <option value="">(未選択)</option>
-                      {(linesState.lines ?? [])
-                        // US-020: 現在の種別に一致する路線のみに絞る
-                        .filter((l) => l.kind === seg.kind)
-                        .map((l) => (
-                          <option key={l.id} value={l.id}>{l.name}</option>
-                        ))}
+                      {visibleLines(
+                        { operator: seg.operator, kind: seg.kind },
+                        linesState.lines ?? [],
+                      ).map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <button

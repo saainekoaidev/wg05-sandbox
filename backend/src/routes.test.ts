@@ -838,6 +838,34 @@ describe('GET /api/stations (駅マスタ参照)', () => {
     }
   })
 
+  it('US-050: operator フィルタで該当 operator の駅のみ返る + operatorName 同梱', async () => {
+    const cookie = await signUpAndGetCookie('s-op@example.com', 'Test1234')
+    // setupMasterFixture には operator なし駅しかいないので, JR東海所属の駅を 1 件追加。
+    await prisma.station.create({
+      data: {
+        id: 'stn-op-jr',
+        name: 'OpJR駅',
+        kana: 'おぴじぇいあーる',
+        operatorId: 'jr-tokai',
+        lineLinks: { create: [{ lineId: 'jr-yamanote' }] },
+      },
+    })
+    try {
+      const res = await getStations(cookie, 'operator=jr-tokai')
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const ids = body.stations.map((s: { id: string }) => s.id)
+      expect(ids).toContain('stn-op-jr')
+      // 全件 operatorId=jr-tokai
+      for (const s of body.stations) {
+        expect(s.operatorId).toBe('jr-tokai')
+        expect(s.operatorName).toBe('JR東海')
+      }
+    } finally {
+      await prisma.station.delete({ where: { id: 'stn-op-jr' } })
+    }
+  })
+
   it('結果オブジェクトに lines[] が含まれ kind/operator も得られる', async () => {
     const cookie = await signUpAndGetCookie('s6@example.com', 'Test1234')
     const res = await getStations(cookie, 'q=渋谷')

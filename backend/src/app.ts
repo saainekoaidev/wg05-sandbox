@@ -320,6 +320,8 @@ app.get('/api/stations', async (c) => {
   const q = c.req.query('q')?.trim() || undefined
   const kindRaw = c.req.query('kind')
   const lineId = c.req.query('line')?.trim() || undefined
+  /// US-050: operator フィルタ。Station.operatorId 一致のみ返す。
+  const operatorId = c.req.query('operator')?.trim() || undefined
 
   // kind は enum 検証 (空文字や未指定は許容)
   let kind: z.infer<typeof KindSchema> | undefined
@@ -330,7 +332,7 @@ app.get('/api/stations', async (c) => {
   }
 
   // 検索条件は 1つ以上必要 (UI 側でも警告を出す前提)
-  if (!q && !kind && !lineId) {
+  if (!q && !kind && !lineId && !operatorId) {
     return c.json({ error: 'no_filter' }, 400)
   }
 
@@ -357,10 +359,12 @@ app.get('/api/stations', async (c) => {
               },
             }
           : {},
+        operatorId ? { operatorId } : {},
       ],
     },
     include: {
       lineLinks: { include: { line: true } },
+      operatorRef: { select: { id: true, name: true } },
     },
     orderBy: { name: 'asc' },
     take: 50,
@@ -388,6 +392,8 @@ app.get('/api/stations', async (c) => {
         name: s.name,
         kana: s.kana,
         code,
+        operatorId: s.operatorId,
+        operatorName: s.operatorRef?.name ?? null,
         lines,
       }
     }),

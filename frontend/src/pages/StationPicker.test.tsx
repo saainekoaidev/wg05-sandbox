@@ -16,7 +16,7 @@ vi.mock('../lib/auth', () => ({
   useSession: () => mockUseSession(),
 }))
 
-// US-017: cascade フィルタテスト用に複数 kind の路線を返す stub
+// US-017 / US-050: cascade フィルタテスト用に複数 kind / operator の路線を返す stub
 vi.mock('../lib/lines', () => ({
   KIND_OPTIONS: [
     { value: 'train', label: '電車' },
@@ -26,10 +26,23 @@ vi.mock('../lib/lines', () => ({
   ],
   useLines: () => ({
     lines: [
-      { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', operator: 'JR東海', routeSegmentCount: 0, stationCount: 0 },
-      { id: 'meitetsu-honsen', name: '名鉄名古屋本線', kind: 'train', operator: '名鉄', routeSegmentCount: 0, stationCount: 0 },
-      { id: 'higashiyama', name: '東山線', kind: 'subway', operator: '名古屋市交通局', routeSegmentCount: 0, stationCount: 0 },
-      { id: 'meijo', name: '名城線', kind: 'subway', operator: '名古屋市交通局', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'jr-tokaido', name: 'JR東海道線', kind: 'train', operator: 'JR東海', operatorId: 'jr-tokai', operatorName: 'JR東海', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'meitetsu-honsen', name: '名鉄名古屋本線', kind: 'train', operator: '名鉄', operatorId: 'meitetsu', operatorName: '名古屋鉄道', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'higashiyama', name: '東山線', kind: 'subway', operator: '名古屋市交通局', operatorId: 'nagoya-subway', operatorName: '名古屋市交通局', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'meijo', name: '名城線', kind: 'subway', operator: '名古屋市交通局', operatorId: 'nagoya-subway', operatorName: '名古屋市交通局', routeSegmentCount: 0, stationCount: 0 },
+    ],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
+
+vi.mock('../lib/operators', () => ({
+  useOperators: () => ({
+    operators: [
+      { id: 'jr-tokai', name: 'JR東海', aliases: [] },
+      { id: 'meitetsu', name: '名古屋鉄道', aliases: [] },
+      { id: 'nagoya-subway', name: '名古屋市交通局', aliases: [] },
     ],
     loading: false,
     error: null,
@@ -145,7 +158,7 @@ describe('StationPicker', () => {
 
     expect(
       screen.getByText(
-        '駅名・種別・路線のいずれかを入力または選択してください',
+        '駅名・運営会社・種別・路線のいずれかを入力または選択してください',
       ),
     ).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
