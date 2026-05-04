@@ -443,8 +443,8 @@ describe('AdminLines', () => {
       await waitFor(() => {
         const raw = sessionStorage.getItem('admin-lines-filter')
         expect(raw).not.toBeNull()
-        // US-050: kind を選ぶと operator が candidate 1 件 (nagoya-subway) なら自動選択
-        expect(JSON.parse(raw!)).toEqual({ operator: 'nagoya-subway', kind: 'subway' })
+        // US-053: 下位 (kind) 選択は上位 (operator) に作用しない → operator は '' のまま
+        expect(JSON.parse(raw!)).toEqual({ operator: '', kind: 'subway' })
       })
     })
 
@@ -480,7 +480,7 @@ describe('AdminLines', () => {
       expect(screen.getByText('JR東海道線')).toBeInTheDocument()
     })
 
-    it('US-051: リセットボタンで運営会社+種別が全て初期化される', async () => {
+    it('US-051 / US-053: リセットボタンで運営会社+種別が全て初期化される', async () => {
       const user = userEvent.setup()
       fetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(ADMIN), { status: 200 }),
@@ -488,11 +488,12 @@ describe('AdminLines', () => {
       renderAdminLines()
       await screen.findByText('JR東海道線')
 
-      // 種別=subway を選ぶ → operator=nagoya-subway 自動選択
+      // US-053: 種別=subway を選ぶが, 下位 → 上位 への作用はしないので operator は '' のまま。
+      // (auto-select は廃止)
       await user.selectOptions(screen.getByLabelText('種別'), 'subway')
       expect(
         (screen.getByLabelText('運営会社') as HTMLSelectElement).value,
-      ).toBe('nagoya-subway')
+      ).toBe('')
       expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe(
         'subway',
       )

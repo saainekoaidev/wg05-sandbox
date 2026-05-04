@@ -488,11 +488,11 @@ describe('AdminStations', () => {
       await waitFor(() => {
         const raw = sessionStorage.getItem('admin-stations-filter')
         expect(raw).not.toBeNull()
-        // US-052: subway は 1 社 (nagoya-subway) のみが運営 → 自動選択される
+        // US-053: 下位 (kind) 選択は上位 (operator) に作用しない → operator は '' のまま
         expect(JSON.parse(raw!)).toEqual({
           kind: 'subway',
           line: '',
-          operator: 'nagoya-subway',
+          operator: '',
         })
       })
     })

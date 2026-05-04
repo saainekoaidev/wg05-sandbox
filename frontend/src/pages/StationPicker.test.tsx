@@ -338,44 +338,34 @@ describe('StationPicker', () => {
       expect(lineSelect.options.length).toBe(5) // すべての路線 + 4 件
     })
 
-    it('路線を選ぶと種別がその路線の kind に自動で揃う', async () => {
-      const user = userEvent.setup()
-      renderPicker()
-      const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
-      const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
-      // 初期は両方 ""
-      expect(kindSelect.value).toBe('')
-      expect(lineSelect.value).toBe('')
-
-      // 地下鉄路線 (東山線) を選ぶ
-      await user.selectOptions(lineSelect, 'higashiyama')
-      expect(kindSelect.value).toBe('subway')
-      expect(lineSelect.value).toBe('higashiyama')
-    })
-
-    it('US-052: 別 operator の路線に切り替えると運営会社+種別+路線が同時に変わる', async () => {
+    it('US-053: 路線を選んでも上位 (種別/運営会社) は変わらない', async () => {
       const user = userEvent.setup()
       renderPicker()
       const operatorSelect = screen.getByLabelText('運営会社') as HTMLSelectElement
       const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
       const lineSelect = screen.getByLabelText('路線') as HTMLSelectElement
+      // 初期は全て ""
+      expect(operatorSelect.value).toBe('')
+      expect(kindSelect.value).toBe('')
+      expect(lineSelect.value).toBe('')
 
-      // 電車路線 (JR東海道線) を選ぶ → 種別=電車, 運営会社=jr-tokai に揃う
-      await user.selectOptions(lineSelect, 'jr-tokaido')
-      expect(kindSelect.value).toBe('train')
-      expect(operatorSelect.value).toBe('jr-tokai')
-      expect(lineSelect.value).toBe('jr-tokaido')
+      // 地下鉄路線 (東山線) を選ぶ → US-053: 種別/運営会社は '' のまま
+      await user.selectOptions(lineSelect, 'higashiyama')
+      expect(lineSelect.value).toBe('higashiyama')
+      expect(kindSelect.value).toBe('')
+      expect(operatorSelect.value).toBe('')
+    })
 
-      // 一度 operator と line をクリア (kind 切替の前提)
-      await user.selectOptions(lineSelect, '')
-      await user.selectOptions(operatorSelect, '')
-      expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe('train')
+    it('US-053: 種別を選んでも上位 (運営会社) は変わらない', async () => {
+      const user = userEvent.setup()
+      renderPicker()
+      const operatorSelect = screen.getByLabelText('運営会社') as HTMLSelectElement
+      const kindSelect = screen.getByLabelText('種別') as HTMLSelectElement
 
-      // 種別=地下鉄 に変更 → 候補 operator=nagoya-subway 自動選択
+      // 種別=地下鉄 を選ぶ → 運営会社は '' のまま (auto-select 廃止)
       await user.selectOptions(kindSelect, 'subway')
       expect(kindSelect.value).toBe('subway')
-      expect(operatorSelect.value).toBe('nagoya-subway')
-      expect(lineSelect.value).toBe('')
+      expect(operatorSelect.value).toBe('')
     })
 
     it('種別を変更しても路線がその種別と整合する場合は路線をクリアしない', async () => {

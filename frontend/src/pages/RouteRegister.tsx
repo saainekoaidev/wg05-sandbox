@@ -445,7 +445,16 @@ export function RouteRegister() {
                       aria-label={`区間${idx + 1} 路線名`}
                       value={seg.lineId}
                       onChange={(e) =>
-                        patchCascade(idx, (s) => applyLine(s, e.target.value, cascadeData))
+                        patchCascade(idx, (s) => {
+                          const next = applyLine(s, e.target.value, cascadeData)
+                          // US-053 + segment data 整合性: 路線が選ばれたら種別をその路線の kind に揃える。
+                          // 区間データの kind は zod required のため, 路線と整合させる必要がある。
+                          const line = cascadeData.lines.find(
+                            (l) => l.id === e.target.value,
+                          )
+                          if (line) next.kind = line.kind
+                          return next
+                        })
                       }
                       disabled={submitting}
                     >

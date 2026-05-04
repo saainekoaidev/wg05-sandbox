@@ -596,7 +596,15 @@ export function RouteEdit() {
                       aria-label={`区間${idx + 1} 路線名`}
                       value={seg.lineId}
                       onChange={(e) =>
-                        patchCascade(idx, (s) => applyLine(s, e.target.value, cascadeData))
+                        patchCascade(idx, (s) => {
+                          const next = applyLine(s, e.target.value, cascadeData)
+                          // US-053 + segment data 整合性: 路線が選ばれたら種別をその路線の kind に揃える。
+                          const line = cascadeData.lines.find(
+                            (l) => l.id === e.target.value,
+                          )
+                          if (line) next.kind = line.kind
+                          return next
+                        })
                       }
                       disabled={submitting}
                     >
