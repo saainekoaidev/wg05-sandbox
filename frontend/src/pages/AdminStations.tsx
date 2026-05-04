@@ -475,6 +475,21 @@ export function AdminStations() {
               <div className="hint" style={{ alignSelf: 'center' }}>
                 {filteredStations?.length ?? 0} / {stations.length} 件
               </div>
+              {/* US-051: フィルタを全て初期状態に戻す */}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setOperatorFilter('')
+                  setKindFilter('')
+                  setLineFilter('')
+                }}
+                disabled={!operatorFilter && !kindFilter && !lineFilter}
+                style={{ alignSelf: 'center' }}
+                aria-label="フィルタをリセット"
+              >
+                リセット
+              </button>
             </div>
 
             {filteredStations && filteredStations.length === 0 && (

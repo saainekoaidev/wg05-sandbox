@@ -624,14 +624,15 @@ export function Account() {
               className="actions actions--no-divider"
               style={{ justifyContent: 'center', gap: 16 }}
             >
+              {/* US-051: 運営会社 → 路線 → 駅 の上位→下位順に並べる */}
+              <Link to="/admin/operators" className="btn btn-secondary btn-sm">
+                運営会社マスタ管理
+              </Link>
               <Link to="/admin/lines" className="btn btn-secondary btn-sm">
                 路線マスタ管理
               </Link>
               <Link to="/admin/stations" className="btn btn-secondary btn-sm">
                 駅マスタ管理
-              </Link>
-              <Link to="/admin/operators" className="btn btn-secondary btn-sm">
-                運営会社マスタ管理
               </Link>
             </div>
           </div>
