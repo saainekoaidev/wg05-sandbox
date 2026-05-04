@@ -100,26 +100,56 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
     setPrefilled(true)
   }, [mode, editId, linesState.lines, prefilled])
 
-  const [formError, setFormError] = useState<string | null>(null)
+  // US-038: バリデーションエラー対象 input を field 識別子で持つ。
+  // field の規約: 'id' | 'name' | 'kind' | 'operator' | null
+  type FormError = { message: string; field: string | null }
+  const [formError, setFormError] = useState<FormError | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  function fieldDomId(field: string): string {
+    return `form-${field}`
+  }
+
+  function fail(field: string | null, message: string) {
+    setFormError({ message, field })
+    if (field) {
+      queueMicrotask(() => {
+        const el = document.getElementById(fieldDomId(field))
+        if (!el) return
+        // jsdom では scrollIntoView が未実装。ブラウザでだけ実行する。
+        if (typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }
+        if (typeof (el as HTMLElement).focus === 'function') {
+          ;(el as HTMLElement).focus({ preventScroll: true })
+        }
+      })
+    }
+  }
+
+  function inputClass(field: string, base = ''): string {
+    const isError = formError?.field === field
+    return [base, isError ? 'is-error' : ''].filter(Boolean).join(' ')
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setFormError(null)
     if (mode === 'create') {
-      if (!formId) return setFormError('IDを入力してください')
+      if (!formId) return fail('id', 'IDを入力してください')
       if (!ID_RE.test(formId))
-        return setFormError(
+        return fail(
+          'id',
           'IDは半角英数字 + ハイフン/ドット/アンダースコアのみ使用できます',
         )
       if (formId.length > 80)
-        return setFormError('IDは80文字以内で入力してください')
+        return fail('id', 'IDは80文字以内で入力してください')
     }
-    if (!formName) return setFormError('路線名を入力してください')
+    if (!formName) return fail('name', '路線名を入力してください')
     if (formName.length > 80)
-      return setFormError('路線名は80文字以内で入力してください')
+      return fail('name', '路線名は80文字以内で入力してください')
     if (formOperator && formOperator.length > 80)
-      return setFormError('運営会社は80文字以内で入力してください')
+      return fail('operator', '運営会社は80文字以内で入力してください')
 
     setSubmitting(true)
     try {
@@ -144,23 +174,32 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
         return
       }
       if (res.status === 403) {
-        setFormError('管理者権限が必要です')
+        setFormError({ message: '管理者権限が必要です', field: null })
         return
       }
       if (res.status === 400) {
-        setFormError('入力内容に誤りがあります')
+        setFormError({ message: '入力内容に誤りがあります', field: null })
         return
       }
       if (res.status === 409) {
-        setFormError('同じIDまたは路線名が既に登録されています')
-        return
+        // ID 重複 (新規) or 路線名重複。新規時は ID 入力にフォーカス、編集時は名前入力にフォーカス。
+        return fail(
+          mode === 'create' ? 'id' : 'name',
+          '同じIDまたは路線名が既に登録されています',
+        )
       }
       if (res.status === 404) {
-        setFormError('編集対象の路線が見つかりませんでした (削除済み?)')
+        setFormError({
+          message: '編集対象の路線が見つかりませんでした (削除済み?)',
+          field: null,
+        })
         return
       }
       if (!res.ok) {
-        setFormError('保存に失敗しました。再度お試しください')
+        setFormError({
+          message: '保存に失敗しました。再度お試しください',
+          field: null,
+        })
         return
       }
       // 成功 → /admin/lines へ通知バナー付きで戻る
@@ -171,7 +210,7 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
         },
       })
     } catch {
-      setFormError('保存に失敗しました。再度お試しください')
+      setFormError({ message: '保存に失敗しました。再度お試しください', field: null })
     } finally {
       setSubmitting(false)
     }
@@ -285,7 +324,11 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
       </div>
 
       <form onSubmit={handleSubmit} noValidate>
-        {formError && <div className="banner is-shown">{formError}</div>}
+        {formError && (
+          <div className="banner is-shown" role="alert">
+            {formError.message}
+          </div>
+        )}
 
         <div className="group">
           <label htmlFor="form-id">
@@ -294,6 +337,8 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
           <input
             type="text"
             id="form-id"
+            className={inputClass('id')}
+            aria-invalid={formError?.field === 'id' || undefined}
             value={formId}
             onChange={(e) => setFormId(e.target.value)}
             disabled={mode === 'edit' || submitting}
@@ -313,6 +358,8 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
           <input
             type="text"
             id="form-name"
+            className={inputClass('name')}
+            aria-invalid={formError?.field === 'name' || undefined}
             value={formName}
             onChange={(e) => setFormName(e.target.value)}
             disabled={submitting}
@@ -326,6 +373,8 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
           </label>
           <select
             id="form-kind"
+            className={inputClass('kind')}
+            aria-invalid={formError?.field === 'kind' || undefined}
             value={formKind}
             onChange={(e) => setFormKind(e.target.value as LineKind)}
             disabled={submitting}
@@ -343,6 +392,8 @@ export function AdminLineForm({ mode }: AdminLineFormProps) {
           <input
             type="text"
             id="form-operator"
+            className={inputClass('operator')}
+            aria-invalid={formError?.field === 'operator' || undefined}
             value={formOperator}
             onChange={(e) => setFormOperator(e.target.value)}
             disabled={submitting}

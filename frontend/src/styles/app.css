@@ -467,6 +467,25 @@ tbody tr:hover { background: var(--blue-50); }
 }
 .line-picker__code:disabled { background: #f3f4f6; color: #9ca3af; }
 
+/* US-038: バリデーションエラーが起きた input/select を赤枠で強調する。
+   送信ハンドラ側で対象要素に scroll + focus も行うため、画面外でも見つけやすい。 */
+.is-error,
+input.is-error,
+select.is-error,
+textarea.is-error {
+  border-color: #dc2626 !important;
+  background: #fef2f2;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.18);
+}
+.is-error:focus,
+input.is-error:focus,
+select.is-error:focus,
+textarea.is-error:focus {
+  outline: none;
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.32);
+}
+
 /* 詳細画面 (read-only 表示) */
 .detail {
   display: flex;
