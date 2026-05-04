@@ -9,8 +9,8 @@
 | 概要 | 管理者が駅マスタ (Station) と接続路線 (StationLine) を一括で管理する画面 |
 | URL | `/admin/stations` |
 | アクセス権限 | 認証必須 + `User.role = "admin"` |
-| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042 |
-| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス) |
+| 関連US | US-013, US-026, US-028, US-029, US-032, US-033, US-034, US-035, US-036, US-037, US-038, US-039, US-040, US-041, US-042, US-043 |
+| 関連ADR | docs/adr/0006-master-admin.md (権限モデル + 参照整合性, §4-§6), docs/adr/0008-station-code-per-line.md (駅番号は路線ごとに保持), docs/adr/0009-station-code-filter.md (取り込み時の電報略号除外), docs/adr/0010-station-code-ambiguity.md (qualifier 拡張 + 補完ロジック), docs/adr/0011-station-code-prefix-routing.md (prefix 学習で unattached 自動割当), docs/adr/0012-station-merge-by-coord.md (同一物理駅の Q-ID 分割をマージ), docs/adr/0013-line-alias-hierarchy.md (路線階層エイリアス), docs/adr/0014-dynamic-line-discovery.md (4 県内鉄道路線の動的発見 + audit レポート) |
 
 ---
 
