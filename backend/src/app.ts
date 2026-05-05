@@ -29,6 +29,9 @@ app.get('/api/health', (c) => c.json({ ok: true }))
 const KindSchema = z.enum(['train', 'subway', 'bus', 'other'])
 
 const SegmentInput = z.object({
+  /// US-059: operator は段階的導入のため optional (既存ルートとの互換性)。
+  /// 新規送信は基本的に必須だが backend では nullable で受ける。
+  operatorId: z.string().min(1).max(40).nullable().optional(),
   kind: KindSchema,
   lineId: z.string().nullable().optional(),
   fromStation: z.string().min(1).max(50),
@@ -85,6 +88,8 @@ app.post('/api/routes', async (c) => {
           orderIndex: i + 1,
           kind: s.kind,
           lineId: s.lineId ?? null,
+          // US-059: operator を永続化
+          operatorId: s.operatorId ?? null,
           fromStation: s.fromStation,
           toStation: s.toStation,
           fare: s.fare,
@@ -232,6 +237,8 @@ app.put('/api/routes/:id', async (c) => {
           orderIndex: i + 1,
           kind: s.kind,
           lineId: s.lineId ?? null,
+          // US-059: operator を永続化
+          operatorId: s.operatorId ?? null,
           fromStation: s.fromStation,
           toStation: s.toStation,
           fare: s.fare,
