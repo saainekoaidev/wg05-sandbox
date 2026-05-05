@@ -750,6 +750,8 @@ textarea.is-error:focus {
 .tag-subway { color: #b8460e;         background: #fff1e6; }
 .tag-bus    { color: #1d8048;         background: #e6f6ec; }
 .tag-other  { color: var(--muted);    background: var(--blue-50); }
+/* US-054: 運営会社タグ (一覧の operator 列で 1 行表示) */
+.tag-operator { color: #4a3a8a;       background: #ece8f7; }
 
 /* 区間表示 (read-only): 種別タグ + 路線名 を出発→到着の上に表示 */
 .segment-list .seg-body {

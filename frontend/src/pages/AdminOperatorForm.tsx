@@ -395,7 +395,15 @@ export function AdminOperatorForm({ mode }: AdminOperatorFormProps) {
           <label>運営する種別</label>
           <div role="group" aria-label="運営する種別" className="kind-checks" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             {KIND_OPTIONS.map((opt) => (
-              <label key={opt.value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <label
+                key={opt.value}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={formKinds.has(opt.value)}
