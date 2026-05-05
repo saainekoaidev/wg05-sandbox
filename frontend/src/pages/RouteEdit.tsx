@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from 'react'
@@ -24,9 +25,11 @@ import {
 type SegmentField = 'fromStation' | 'toStation'
 
 type Segment = {
-  /** US-050: UI 専用 (operator 絞り込み)。API には送らない。 */
+  /** US-050: UI 専用 (operator 絞り込み)。API には送らない。
+   *  US-057: 登録/更新時に '' は禁止 (バリデーションエラー)。 */
   operator: string
-  kind: LineKind
+  /** US-057: '' は (指定なし) を表し, 登録/更新時にエラーとする。 */
+  kind: '' | LineKind
   lineId: string // '' = 未選択 (送信時 null に変換)
   fromStation: string
   toStation: string
@@ -34,6 +37,8 @@ type Segment = {
 }
 
 type SegmentErrors = {
+  operator?: string
+  kind?: string
   fromStation?: string
   toStation?: string
   fare?: string
@@ -149,15 +154,23 @@ export function RouteEdit() {
     [linesState.lines, operatorsState.operators],
   )
 
-  function patchCascade(idx: number, fn: (s: { operator: string; kind: LineKind; line: string }) => { operator: string; kind: '' | LineKind; line: string }) {
+  function patchCascade(
+    idx: number,
+    fn: (s: { operator: string; kind: '' | LineKind; line: string }) => {
+      operator: string
+      kind: '' | LineKind
+      line: string
+    },
+  ) {
     setSegments((prev) =>
       prev.map((seg, i) => {
         if (i !== idx) return seg
         const next = fn({ operator: seg.operator, kind: seg.kind, line: seg.lineId })
+        // US-057: kind の '' は (指定なし) として保持 (validation で弾く)
         return {
           ...seg,
           operator: next.operator,
-          kind: next.kind || seg.kind,
+          kind: next.kind,
           lineId: next.line,
         }
       }),
@@ -232,6 +245,27 @@ export function RouteEdit() {
     }
   }, [isPending, session, id, navigate])
 
+  // US-057: 初期ロード後, line から operator を pre-fill する。
+  // segment.operator は永続化されないため API レスポンスからは取れず, line.operatorId 経由で補完する。
+  // 一度だけ実行する (cascade 後の手動編集を上書きしないよう ref でガード)。
+  const operatorPrefilledRef = useRef(false)
+  useEffect(() => {
+    if (operatorPrefilledRef.current) return
+    if (load.kind !== 'ok') return
+    if (!linesState.lines || linesState.lines.length === 0) return
+    operatorPrefilledRef.current = true
+    const lineMap = new Map(linesState.lines.map((l) => [l.id, l]))
+    const prefill = (s: Segment): Segment => {
+      if (s.operator || !s.lineId) return s
+      const line = lineMap.get(s.lineId)
+      if (line?.operatorId) return { ...s, operator: line.operatorId }
+      return s
+    }
+    setSegments((prev) => prev.map(prefill))
+    // snapshot も同様に更新して isDirty が初期 true にならないようにする
+    setSnapshot((snap) => (snap ? { ...snap, segments: snap.segments.map(prefill) } : snap))
+  }, [load.kind, linesState.lines])
+
   // 派生サマリ
   const summary = useMemo(() => {
     const first = segments[0]
@@ -268,6 +302,15 @@ export function RouteEdit() {
 
     for (const s of segments) {
       const segErr: SegmentErrors = {}
+      // US-057: 運営会社・種別は必須
+      if (!s.operator) {
+        segErr.operator = '区間ごとに運営会社を選択してください'
+        ok = false
+      }
+      if (!s.kind) {
+        segErr.kind = '区間ごとに種別を選択してください'
+        ok = false
+      }
       if (!s.fromStation.trim()) {
         segErr.fromStation = '区間ごとに出発駅を入力してください'
         ok = false
@@ -321,7 +364,7 @@ export function RouteEdit() {
     if (segments.length >= MAX_SEGMENTS) return
     setSegments((prev) => [
       ...prev,
-      { operator: '', kind: 'train', lineId: '', fromStation: '', toStation: '', fareInput: '' },
+      { operator: '', kind: '', lineId: '', fromStation: '', toStation: '', fareInput: '' },
     ])
     setErrors((prev) => ({
       ...prev,
@@ -536,10 +579,14 @@ export function RouteEdit() {
                   <div className="segment-no">{String(idx + 1).padStart(2, '0')}</div>
                   {/* US-050: 運営会社 → 種別 → 路線 順 + cascade */}
                   <div className="group group--narrow">
-                    <label>運営会社</label>
+                    <label>
+                      運営会社<span className="req">必須</span>
+                    </label>
                     <select
                       aria-label={`区間${idx + 1} 運営会社`}
                       value={seg.operator}
+                      className={segErr.operator ? 'is-error' : ''}
+                      aria-invalid={!!segErr.operator || undefined}
                       onChange={(e) =>
                         patchCascade(idx, (s) => applyOperator(s, e.target.value, cascadeData))
                       }
@@ -560,6 +607,9 @@ export function RouteEdit() {
                           </option>
                         ))}
                     </select>
+                    {segErr.operator && (
+                      <div className="field-error">{segErr.operator}</div>
+                    )}
                   </div>
                   <div className="group group--narrow">
                     <label>
@@ -568,13 +618,21 @@ export function RouteEdit() {
                     <select
                       aria-label={`区間${idx + 1} 種別`}
                       value={seg.kind}
+                      className={segErr.kind ? 'is-error' : ''}
+                      aria-invalid={!!segErr.kind || undefined}
                       onChange={(e) =>
                         patchCascade(idx, (s) =>
-                          applyKind(s, e.target.value as LineKind, cascadeData),
+                          applyKind(
+                            s,
+                            e.target.value as '' | LineKind,
+                            cascadeData,
+                          ),
                         )
                       }
                       disabled={submitting}
                     >
+                      {/* US-057: (指定なし) を含めて表示 (登録時にエラー) */}
+                      <option value="">(指定なし)</option>
                       {(['train', 'subway', 'bus', 'other'] as const)
                         .filter((k) => {
                           const set = visibleKinds(
@@ -589,6 +647,9 @@ export function RouteEdit() {
                           </option>
                         ))}
                     </select>
+                    {segErr.kind && (
+                      <div className="field-error">{segErr.kind}</div>
+                    )}
                   </div>
                   <div className="group">
                     <label>路線名</label>

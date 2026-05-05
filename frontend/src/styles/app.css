@@ -54,7 +54,8 @@ body {
   position: relative;
 }
 /* US-022: 経路詳細 (S05) を含む横長画面を更に拡げて, action ボタンの折り返しを防ぐ。 */
-.shell--wide { max-width: 1080px; }
+/* US-058: 一覧画面・詳細画面の横幅を 1080 → 1200 px に拡張 (運営会社列やサマリ表示の余裕を確保) */
+.shell--wide { max-width: 1200px; }
 
 /* ヘッダー */
 .head {
@@ -760,6 +761,13 @@ textarea.is-error:focus {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+/* US-058: 運営会社 + 種別 + 路線名 + 出発→到着 を 1 行で表示 */
+.segment-list .seg-body--inline {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .segment-list .seg-line-row {
   display: flex;
