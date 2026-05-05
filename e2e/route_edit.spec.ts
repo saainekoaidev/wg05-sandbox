@@ -27,6 +27,9 @@ async function registerRouteViaUi(
   await page.getByRole('link', { name: '+ 新規登録' }).first().click()
   await expect(page).toHaveURL('/routes/new')
   await page.getByLabel('経路名').fill(args.name)
+  // US-057: 運営会社・種別 必須
+  await page.getByLabel('区間1 運営会社').selectOption('jr-tokai')
+  await page.getByLabel('区間1 種別').selectOption('train')
   await page.getByLabel('区間1 出発駅').fill(args.from)
   await page.getByLabel('区間1 到着駅').fill(args.to)
   await page.getByLabel('区間1 運賃').fill(args.fare)
