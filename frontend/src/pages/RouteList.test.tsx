@@ -302,20 +302,15 @@ describe('RouteList', () => {
     expect(init.credentials).toBe('include')
   })
 
-  it('ログアウトリンクで signOut が呼ばれ /login に遷移する', async () => {
-    const user = userEvent.setup()
+  it('US-061: ログアウトリンクは経路一覧から除去された (アカウント画面に集約)', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ routes: [] }), { status: 200 }),
     )
-    mockSignOut.mockResolvedValueOnce(undefined)
     renderRouteList()
     await screen.findByText('まだ通勤経路が登録されていません。')
-
-    await user.click(screen.getByRole('link', { name: 'ログアウト' }))
-    await waitFor(() => {
-      expect(mockSignOut).toHaveBeenCalledTimes(1)
-      expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument()
-    })
+    expect(
+      screen.queryByRole('link', { name: 'ログアウト' }),
+    ).not.toBeInTheDocument()
   })
 
   it('+ 新規登録 リンクで /routes/new に遷移する', async () => {

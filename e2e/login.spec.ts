@@ -134,8 +134,9 @@ test.describe('US-002 ログインフロー', () => {
     await page.getByRole('button', { name: 'ログイン' }).click()
     await expect(page).toHaveURL('/routes')
 
-    // ログアウト
-    await page.getByRole('link', { name: 'ログアウト' }).click()
+    // ログアウト (US-061: Account 画面に集約)
+    await page.goto('/account')
+    await page.getByRole('button', { name: 'ログアウト' }).click()
     await expect(page).toHaveURL('/login')
 
     // 再度 /routes へアクセスしてもログイン画面に戻る

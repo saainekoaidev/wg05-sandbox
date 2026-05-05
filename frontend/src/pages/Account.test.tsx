@@ -8,11 +8,12 @@ const mockUseSession = vi.fn()
 const fetchMock = vi.fn()
 const changePasswordMock = vi.fn()
 const deleteUserMock = vi.fn()
+const signOutMock = vi.fn()
 
 vi.mock('../lib/auth', () => ({
   signIn: { email: vi.fn() },
   signUp: { email: vi.fn() },
-  signOut: vi.fn(),
+  signOut: (...args: unknown[]) => signOutMock(...args),
   useSession: () => mockUseSession(),
   changePassword: (...args: unknown[]) => changePasswordMock(...args),
   deleteUser: (...args: unknown[]) => deleteUserMock(...args),
@@ -46,6 +47,7 @@ beforeEach(() => {
   fetchMock.mockReset()
   changePasswordMock.mockReset()
   deleteUserMock.mockReset()
+  signOutMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
 
@@ -718,6 +720,25 @@ describe('Account', () => {
         '#delPassword',
       ) as HTMLInputElement
       expect(delPwd.autocomplete).toBe('new-password')
+    })
+  })
+
+  describe('US-061 ログアウト', () => {
+    it('ログアウトボタンを押すと signOut が呼ばれ /login に遷移する', async () => {
+      const user = userEvent.setup()
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(ME), { status: 200 }),
+      )
+      signOutMock.mockResolvedValueOnce(undefined)
+      renderAccount()
+      // 描画完了を待つ
+      await screen.findByDisplayValue('山田 太郎')
+
+      await user.click(screen.getByRole('button', { name: 'ログアウト' }))
+      await waitFor(() => {
+        expect(signOutMock).toHaveBeenCalledTimes(1)
+        expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument()
+      })
     })
   })
 })

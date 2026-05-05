@@ -162,8 +162,8 @@ test.describe('US-009 パスワード変更フロー', () => {
     await expect(page.getByLabel(/^新しいパスワード必須$/)).toHaveValue('')
 
     // ログアウト → 旧パスではログインできない / 新パスではログインできる
-    await page.getByRole('link', { name: '経路一覧に戻る' }).click()
-    await page.getByRole('link', { name: 'ログアウト' }).click()
+    // US-061: ログアウトは Account 画面に集約 (button role)
+    await page.getByRole('button', { name: 'ログアウト' }).click()
     await expect(page).toHaveURL('/login')
 
     await page.getByLabel(/メールアドレス/).fill(email)

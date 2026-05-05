@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
-import { changePassword, deleteUser, useSession } from '../lib/auth'
+import { changePassword, deleteUser, signOut, useSession } from '../lib/auth'
 
 type ApiUser = {
   id: string
@@ -644,6 +644,17 @@ export function Account() {
           <Link to="/routes" className="btn btn-ghost">
             経路一覧に戻る
           </Link>
+          {/* US-061: ログアウトはここに集約 (経路一覧フッタからは削除) */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={async () => {
+              await signOut()
+              navigate('/login', { replace: true })
+            }}
+          >
+            ログアウト
+          </button>
         </div>
       </div>
     </div>
