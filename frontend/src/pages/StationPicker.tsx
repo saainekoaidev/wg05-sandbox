@@ -375,6 +375,17 @@ export function StationPicker() {
           </div>
         )}
 
+        {/* US-064: 検索結果の件数を表示 (admin 画面と同じスタイル) */}
+        {sortedStations && sortedStations.length > 0 && (
+          <div
+            className="hint"
+            style={{ marginBottom: 8, textAlign: 'right' }}
+            aria-live="polite"
+          >
+            {sortedStations.length} 件
+          </div>
+        )}
+
         {sortedStations && sortedStations.length > 0 && (
           <div className="table-wrap">
             <table>
