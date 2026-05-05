@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
-import { useLines, type LineKind } from '../lib/lines'
+import { type LineKind } from '../lib/lines'
 
 type ApiSegment = {
   id: string
@@ -47,19 +47,6 @@ function uniqueKinds(segments: ApiSegment[]): LineKind[] {
   return KIND_ORDER.filter((k) => set.has(k))
 }
 
-function uniqueLineNames(
-  segments: ApiSegment[],
-  lineById: Map<string, { name: string }>,
-): string {
-  const names: string[] = []
-  for (const s of segments) {
-    if (!s.lineId) continue
-    const line = lineById.get(s.lineId)
-    if (line && !names.includes(line.name)) names.push(line.name)
-  }
-  return names.join(' / ')
-}
-
 function totalFare(segments: ApiSegment[]): number {
   return segments.reduce((acc, s) => acc + s.fare, 0)
 }
@@ -80,12 +67,6 @@ export function RouteList() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const linesState = useLines({ enabled: !!session })
-  const lineById = useMemo(() => {
-    const m = new Map<string, { name: string }>()
-    if (linesState.lines) for (const l of linesState.lines) m.set(l.id, l)
-    return m
-  }, [linesState.lines])
 
   // 認証確定後に一度だけ /api/routes を取得する。
   useEffect(() => {
@@ -126,16 +107,16 @@ export function RouteList() {
   }, [isPending, session, navigate])
 
   // 派生データ (テーブル表示用)
+  // US-062: 路線/運営会社の列を撤去したため lines は不要
   const derived = useMemo(() => {
     if (!routes) return null
     return routes.map((r) => ({
       route: r,
       displayName: r.name || '(無題)',
       kinds: uniqueKinds(r.segments),
-      lines: uniqueLineNames(r.segments, lineById),
       total: totalFare(r.segments),
     }))
-  }, [routes, lineById])
+  }, [routes])
 
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />
@@ -264,7 +245,8 @@ export function RouteList() {
                 <tr>
                   <th className="col-num">#</th>
                   <th>経路名</th>
-                  <th>種別 / 路線</th>
+                  {/* US-062: 路線 / 運営会社 列は撤去 (種別タグだけにする) */}
+                  <th>種別</th>
                   <th>出発 → 到着</th>
                   <th className="col-num">区間</th>
                   <th className="col-num">合計運賃</th>
@@ -277,20 +259,15 @@ export function RouteList() {
                     <td className="col-num">{i + 1}</td>
                     <td>{d.displayName}</td>
                     <td>
-                      <div className="cell-stack">
-                        <div className="tag-row">
-                          {d.kinds.map((k) => (
-                            <span key={k} className={KIND_TAG_CLASS[k]}>
-                              {KIND_LABEL[k]}
-                            </span>
-                          ))}
-                        </div>
-                        {d.lines && (
-                          <div className="line-list">{d.lines}</div>
-                        )}
+                      <div className="tag-row">
+                        {d.kinds.map((k) => (
+                          <span key={k} className={KIND_TAG_CLASS[k]}>
+                            {KIND_LABEL[k]}
+                          </span>
+                        ))}
                       </div>
                     </td>
-                    <td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
                       {d.route.fromStation} → {d.route.toStation}
                     </td>
                     <td className="col-num">{d.route.segments.length}</td>

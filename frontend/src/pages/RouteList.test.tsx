@@ -181,7 +181,7 @@ describe('RouteList', () => {
     }
   })
 
-  it('1件以上で表 (経路名 / 種別タグ / 路線サマリ / 出発→到着 / 区間数 / 合計運賃) が描画される', async () => {
+  it('1件以上で表 (経路名 / 種別タグ / 出発→到着 / 区間数 / 合計運賃) が描画される', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ routes: [ROUTE_A] }), { status: 200 }),
     )
@@ -200,9 +200,8 @@ describe('RouteList', () => {
     expect(trainTag).toBeInTheDocument()
     expect(subwayTag).toBeInTheDocument()
 
-    // 路線サマリ ( / 区切り)
-    expect(screen.getByText(/JR山手線/)).toBeInTheDocument()
-    expect(screen.getByText(/銀座線/)).toBeInTheDocument()
+    // US-062: 路線サマリ列は撤去された
+    expect(screen.queryByText(/JR山手線/)).not.toBeInTheDocument()
 
     // 出発 → 到着
     expect(screen.getByText('渋谷 → 神田')).toBeInTheDocument()
