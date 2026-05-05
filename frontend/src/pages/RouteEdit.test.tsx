@@ -24,8 +24,8 @@ vi.mock('../lib/lines', () => ({
   ],
   useLines: () => ({
     lines: [
-      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, operatorId: null, operatorName: null, routeSegmentCount: 0, stationCount: 0 },
-      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, operatorId: null, operatorName: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本', operatorId: 'jr-east', operatorName: 'JR東日本', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: '東京メトロ', operatorId: 'metro', operatorName: '東京メトロ', routeSegmentCount: 0, stationCount: 0 },
     ],
     loading: false,
     error: null,
@@ -33,10 +33,13 @@ vi.mock('../lib/lines', () => ({
   }),
 }))
 
-// US-049 / US-050: operator マスタ stub
+// US-049 / US-050: operator マスタ stub (US-057: kinds + 1 件以上)
 vi.mock('../lib/operators', () => ({
   useOperators: () => ({
-    operators: [],
+    operators: [
+      { id: 'jr-east', name: 'JR東日本', aliases: [], kinds: ['train'] },
+      { id: 'metro', name: '東京メトロ', aliases: [], kinds: ['subway'] },
+    ],
     loading: false,
     error: null,
     reload: () => {},

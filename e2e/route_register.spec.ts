@@ -51,6 +51,9 @@ test.describe('US-003 経路登録フロー', () => {
     await loginAndGoToRouteRegister(page)
 
     await page.getByLabel('経路名').fill(`E2E通勤-${RUN_TAG}`)
+    // US-057: 運営会社・種別 必須
+    await page.getByLabel('区間1 運営会社').selectOption('jr-tokai')
+    await page.getByLabel('区間1 種別').selectOption('train')
     await page.getByLabel('区間1 出発駅').fill('渋谷')
     await page.getByLabel('区間1 到着駅').fill('神田')
     await page.getByLabel('区間1 運賃').fill('200')
@@ -62,6 +65,8 @@ test.describe('US-003 経路登録フロー', () => {
   test('複数区間で登録できる (合計運賃が動的に更新される)', async ({ page }) => {
     await loginAndGoToRouteRegister(page)
 
+    await page.getByLabel('区間1 運営会社').selectOption('jr-tokai')
+    await page.getByLabel('区間1 種別').selectOption('train')
     await page.getByLabel('区間1 出発駅').fill('渋谷')
     await page.getByLabel('区間1 到着駅').fill('表参道')
     await page.getByLabel('区間1 運賃').fill('160')
@@ -69,6 +74,8 @@ test.describe('US-003 経路登録フロー', () => {
     await expect(page.getByText('合計運賃: ¥160')).toBeVisible()
 
     await page.getByRole('button', { name: /区間を追加/ }).click()
+    await page.getByLabel('区間2 運営会社').selectOption('jr-tokai')
+    await page.getByLabel('区間2 種別').selectOption('train')
     await page.getByLabel('区間2 出発駅').fill('表参道')
     await page.getByLabel('区間2 到着駅').fill('神田')
     await page.getByLabel('区間2 運賃').fill('170')

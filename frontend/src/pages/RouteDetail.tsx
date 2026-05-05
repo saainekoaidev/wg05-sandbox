@@ -80,8 +80,10 @@ export function RouteDetail() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const linesState = useLines({ enabled: !!session })
   const lineById = useMemo(() => {
-    const m = new Map<string, { name: string }>()
-    if (linesState.lines) for (const l of linesState.lines) m.set(l.id, l)
+    const m = new Map<string, { name: string; operatorName: string | null }>()
+    if (linesState.lines)
+      for (const l of linesState.lines)
+        m.set(l.id, { name: l.name, operatorName: l.operatorName })
     return m
   }, [linesState.lines])
 
@@ -299,16 +301,20 @@ export function RouteDetail() {
                     <div className="seg-no">
                       {String(seg.orderIndex).padStart(2, '0')}
                     </div>
-                    <div className="seg-body">
-                      <div className="seg-line-row">
-                        <span className={KIND_TAG_CLASS[seg.kind]}>
-                          {KIND_LABEL[seg.kind]}
+                    {/* US-058: 運営会社 + 種別 + 路線名 + 出発→到着 を 1 行で表示 */}
+                    <div className="seg-body seg-body--inline">
+                      {line?.operatorName && (
+                        <span className="tag tag-operator">
+                          {line.operatorName}
                         </span>
-                        {line && <span className="seg-line">{line.name}</span>}
-                      </div>
-                      <div className="seg-flow">
+                      )}
+                      <span className={KIND_TAG_CLASS[seg.kind]}>
+                        {KIND_LABEL[seg.kind]}
+                      </span>
+                      {line && <span className="seg-line">{line.name}</span>}
+                      <span className="seg-flow">
                         {seg.fromStation} → {seg.toStation}
-                      </div>
+                      </span>
                     </div>
                     <div className="seg-fare">¥{seg.fare.toLocaleString()}</div>
                   </div>

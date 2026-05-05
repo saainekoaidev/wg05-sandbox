@@ -23,8 +23,8 @@ vi.mock('../lib/lines', () => ({
   ],
   useLines: () => ({
     lines: [
-      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, operatorId: null, operatorName: null, routeSegmentCount: 0, stationCount: 0 },
-      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, operatorId: null, operatorName: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本', operatorId: 'jr-east', operatorName: 'JR東日本', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: '東京メトロ', operatorId: 'metro', operatorName: '東京メトロ', routeSegmentCount: 0, stationCount: 0 },
     ],
     loading: false,
     error: null,
@@ -35,7 +35,10 @@ vi.mock('../lib/lines', () => ({
 // US-049 / US-050: operator マスタ stub
 vi.mock('../lib/operators', () => ({
   useOperators: () => ({
-    operators: [],
+    operators: [
+      { id: 'jr-east', name: 'JR東日本', aliases: [], kinds: ['train'] },
+      { id: 'metro', name: '東京メトロ', aliases: [], kinds: ['subway'] },
+    ],
     loading: false,
     error: null,
     reload: () => {},
@@ -187,17 +190,17 @@ describe('RouteRegister', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('駅選択ボタン押下で window.open が station-picker 名で呼ばれ、選択中の種別を URL に含む (US-016)', async () => {
+  it('駅選択ボタン押下で window.open が station-picker 名で呼ばれる (US-016)', async () => {
     const user = userEvent.setup()
     renderRouteRegister()
 
+    // US-057: 区間の初期 kind は '' (指定なし) なので URL は ?kind なし
     const pickButtons = screen.getAllByRole('button', { name: '駅選択' })
     await user.click(pickButtons[0]!)
 
     expect(openMock).toHaveBeenCalledTimes(1)
     const args = openMock.mock.calls[0]!
-    // 区間の初期 kind は 'train' なので URL に ?kind=train が付く
-    expect(args[0]).toBe('/stations?kind=train')
+    expect(args[0]).toBe('/stations')
     expect(args[1]).toBe('wg05-station-picker')
   })
 
@@ -205,7 +208,7 @@ describe('RouteRegister', () => {
     const user = userEvent.setup()
     renderRouteRegister()
 
-    // 区間1 の路線を変更 (種別はデフォルト train のまま)
+    // 区間1 の路線を変更 → applyLine wrapper が kind=train を hard-set する
     const lineSelect = screen.getByRole('combobox', {
       name: '区間1 路線名',
     }) as HTMLSelectElement
@@ -247,6 +250,9 @@ describe('RouteRegister', () => {
     renderRouteRegister()
 
     await user.type(screen.getByLabelText('経路名'), '平日通勤')
+    // US-057: 運営会社 + 種別 必須
+    await user.selectOptions(screen.getByLabelText('区間1 運営会社'), 'jr-east')
+    await user.selectOptions(screen.getByLabelText('区間1 種別'), 'train')
     await user.type(screen.getByLabelText('区間1 出発駅'), '渋谷')
     await user.type(screen.getByLabelText('区間1 到着駅'), '神田')
     await user.type(screen.getByLabelText('区間1 運賃'), '200')
@@ -285,6 +291,8 @@ describe('RouteRegister', () => {
     )
     renderRouteRegister()
 
+    await user.selectOptions(screen.getByLabelText('区間1 運営会社'), 'jr-east')
+    await user.selectOptions(screen.getByLabelText('区間1 種別'), 'train')
     await user.type(screen.getByLabelText('区間1 出発駅'), '渋谷')
     await user.type(screen.getByLabelText('区間1 到着駅'), '神田')
     await user.type(screen.getByLabelText('区間1 運賃'), '200')
@@ -304,6 +312,8 @@ describe('RouteRegister', () => {
     )
     renderRouteRegister()
 
+    await user.selectOptions(screen.getByLabelText('区間1 運営会社'), 'jr-east')
+    await user.selectOptions(screen.getByLabelText('区間1 種別'), 'train')
     await user.type(screen.getByLabelText('区間1 出発駅'), '渋谷')
     await user.type(screen.getByLabelText('区間1 到着駅'), '神田')
     await user.type(screen.getByLabelText('区間1 運賃'), '200')
@@ -325,6 +335,8 @@ describe('RouteRegister', () => {
     )
     renderRouteRegister()
 
+    await user.selectOptions(screen.getByLabelText('区間1 運営会社'), 'jr-east')
+    await user.selectOptions(screen.getByLabelText('区間1 種別'), 'train')
     await user.type(screen.getByLabelText('区間1 出発駅'), '渋谷')
     await user.type(screen.getByLabelText('区間1 到着駅'), '神田')
     await user.type(screen.getByLabelText('区間1 運賃'), '200')
@@ -374,8 +386,14 @@ describe('RouteRegister', () => {
   })
 
   describe('US-020 種別↔路線 cascade フィルタ (区間)', () => {
-    it('種別=電車 のとき路線セレクトの選択肢は train 路線のみ', () => {
+    it('種別=電車 のとき路線セレクトの選択肢は train 路線のみ', async () => {
+      const user = userEvent.setup()
       renderRouteRegister()
+      // US-057: 区間の初期 kind は '' なので明示選択する
+      const kindSelect = screen.getByRole('combobox', {
+        name: '区間1 種別',
+      }) as HTMLSelectElement
+      await user.selectOptions(kindSelect, 'train')
       const lineSelect = screen.getByRole('combobox', {
         name: '区間1 路線名',
       }) as HTMLSelectElement
