@@ -590,9 +590,11 @@ textarea.is-error:focus {
   font-size: 12px;
 }
 .segment-list .seg-flow {
-  flex: 1;
+  flex: 0 0 auto;
   color: var(--ink);
   font-weight: 500;
+  /* US-060: 出発駅 → 到着駅 は決して文字単位で改行させない */
+  white-space: nowrap;
 }
 .segment-list .seg-fare {
   flex: 0 0 80px;
@@ -778,6 +780,8 @@ textarea.is-error:focus {
 .segment-list .seg-line {
   font-size: 12px;
   color: var(--muted);
+  /* US-060: 路線名も折り返さない */
+  white-space: nowrap;
 }
 
 /* 一覧の路線サマリセル */
