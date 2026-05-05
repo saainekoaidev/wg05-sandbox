@@ -80,8 +80,10 @@ export function RouteDetail() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const linesState = useLines({ enabled: !!session })
   const lineById = useMemo(() => {
-    const m = new Map<string, { name: string }>()
-    if (linesState.lines) for (const l of linesState.lines) m.set(l.id, l)
+    const m = new Map<string, { name: string; operatorName: string | null }>()
+    if (linesState.lines)
+      for (const l of linesState.lines)
+        m.set(l.id, { name: l.name, operatorName: l.operatorName })
     return m
   }, [linesState.lines])
 
