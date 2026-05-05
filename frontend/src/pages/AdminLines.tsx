@@ -440,7 +440,15 @@ export function AdminLines() {
                           <code>{line.id}</code>
                         </td>
                         <td>{line.name}</td>
-                        <td>{line.operatorName ?? line.operator ?? '—'}</td>
+                        <td>
+                          {line.operatorName ?? line.operator ? (
+                            <span className="tag tag-operator">
+                              {line.operatorName ?? line.operator}
+                            </span>
+                          ) : (
+                            <span className="hint">—</span>
+                          )}
+                        </td>
                         <td>
                           <span className={KIND_TAG_CLASS[line.kind]}>
                             {KIND_LABEL[line.kind]}

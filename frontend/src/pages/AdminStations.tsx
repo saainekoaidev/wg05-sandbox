@@ -537,7 +537,15 @@ export function AdminStations() {
                         </td>
                         <td className="admin-stn-name">{station.name}</td>
                         <td className="admin-stn-kana">{station.kana}</td>
-                        <td>{station.operatorName ?? '—'}</td>
+                        <td>
+                          {station.operatorName ? (
+                            <span className="tag tag-operator">
+                              {station.operatorName}
+                            </span>
+                          ) : (
+                            <span className="hint">—</span>
+                          )}
+                        </td>
                         <td className="admin-stn-lines">
                           {station.lines.length === 0 ? (
                             <span className="hint">未接続</span>
