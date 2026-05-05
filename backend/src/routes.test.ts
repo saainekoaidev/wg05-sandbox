@@ -785,11 +785,12 @@ describe('GET /api/stations (駅マスタ参照)', () => {
     expect(res.status).toBe(401)
   })
 
-  it('検索条件未指定では 400 (no_filter)', async () => {
+  it('US-065: 検索条件未指定でも 200 で全件返す (client-side filter 用)', async () => {
     const cookie = await signUpAndGetCookie('s1@example.com', 'Test1234')
     const res = await getStations(cookie, '')
-    expect(res.status).toBe(400)
-    expect((await res.json()).error).toBe('no_filter')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { stations: unknown[] }
+    expect(Array.isArray(body.stations)).toBe(true)
   })
 
   it('q (駅名漢字) で部分一致検索できる', async () => {

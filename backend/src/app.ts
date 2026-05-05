@@ -338,10 +338,8 @@ app.get('/api/stations', async (c) => {
     kind = parsed.data
   }
 
-  // 検索条件は 1つ以上必要 (UI 側でも警告を出す前提)
-  if (!q && !kind && !lineId && !operatorId) {
-    return c.json({ error: 'no_filter' }, 400)
-  }
+  // US-065: クライアント側 filter のため, フィルタなしの全件取得も許可する。
+  // (US-064 で take 上限を撤去済 → 全件 ~850 件で 1 ロード OK)
 
   const stations = await prisma.station.findMany({
     where: {

@@ -132,9 +132,10 @@ test.describe('US-003 経路登録フロー', () => {
       popup.getByRole('heading', { name: '駅マスタ参照' }),
     ).toBeVisible()
 
-    // popup 内で検索 → 選択 (東海4県取り込み済みの「名古屋」駅を使用)
+    // popup 内で駅名検索 → 選択 (東海4県取り込み済みの「名古屋」駅を使用)
+    // US-065: 検索ボタンは廃止, 入力後 blur (Tab) で client-side filter を適用
     await popup.getByLabel('駅名 / よみがな').fill('名古屋')
-    await popup.getByRole('button', { name: '検索' }).click()
+    await popup.keyboard.press('Tab')
     // 名古屋駅は事業者ごとに複数 (JR / 名鉄 / 近鉄 / 地下鉄 / あおなみ) 存在するため
     // 最初に見つかる行を選ぶ
     await expect(popup.getByText('名古屋', { exact: true }).first()).toBeVisible()

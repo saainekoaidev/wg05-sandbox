@@ -68,6 +68,8 @@ const SAMPLE_RESPONSE = {
       name: '渋谷',
       kana: 'しぶや',
       code: 'JY20',
+      operatorId: 'jr-east',
+      operatorName: 'JR東日本',
       lines: [
         { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
         { id: 'metro-fukutoshin', name: '東京メトロ副都心線', kind: 'subway', operator: '東京メトロ' },
@@ -88,6 +90,8 @@ const SORT_SAMPLE = {
       name: '渋谷',
       kana: 'しぶや',
       code: 'JY20',
+      operatorId: 'jr-east',
+      operatorName: 'JR東日本',
       lines: [
         { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
         { id: 'metro-fukutoshin', name: '東京メトロ副都心線', kind: 'subway', operator: '東京メトロ' },
@@ -98,6 +102,8 @@ const SORT_SAMPLE = {
       name: '新宿',
       kana: 'しんじゅく',
       code: 'JY17',
+      operatorId: 'jr-east',
+      operatorName: 'JR東日本',
       lines: [
         { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本' },
       ],
@@ -107,6 +113,8 @@ const SORT_SAMPLE = {
       name: '池袋',
       kana: 'いけぶくろ',
       code: '',
+      operatorId: 'metro',
+      operatorName: '東京メトロ',
       lines: [
         { id: 'metro-marunouchi', name: '東京メトロ丸ノ内線', kind: 'subway', operator: '東京メトロ' },
       ],
@@ -139,7 +147,10 @@ describe('StationPicker', () => {
     expect(screen.getByText('LOGIN_PAGE')).toBeInTheDocument()
   })
 
-  it('既ログインなら検索フォームを描画する', () => {
+  it('US-065: 既ログインなら検索フォームを描画する (検索ボタンは廃止)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+    )
     renderPicker()
     expect(
       screen.getByRole('heading', { name: '駅マスタ参照' }),
@@ -147,60 +158,56 @@ describe('StationPicker', () => {
     expect(screen.getByLabelText('駅名 / よみがな')).toBeInTheDocument()
     expect(screen.getByLabelText('種別')).toBeInTheDocument()
     expect(screen.getByLabelText('路線')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '検索' })).toBeInTheDocument()
-  })
-
-  it('検索条件未指定で「検索」を押すと警告バナーを出して fetch しない', async () => {
-    const user = userEvent.setup()
-    renderPicker()
-
-    await user.click(screen.getByRole('button', { name: '検索' }))
-
+    // 検索ボタンは廃止 (filter 即時反映)
     expect(
-      screen.getByText(
-        '駅名・運営会社・種別・路線のいずれかを入力または選択してください',
-      ),
-    ).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+      screen.queryByRole('button', { name: '検索' }),
+    ).not.toBeInTheDocument()
   })
 
-  it('q を入れて検索すると /api/stations が credentials 付きで呼ばれ結果が表示される', async () => {
+  it('US-065: 初回マウントで /api/stations を全件 fetch する', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+    )
+    renderPicker()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://localhost:3000/api/stations')
+    expect(init.credentials).toBe('include')
+    // 結果が即時表示される
+    expect(await screen.findByText('渋谷')).toBeInTheDocument()
+  })
+
+  it('US-065: q を入力して blur で client-side フィルタが反映される', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(SORT_SAMPLE), { status: 200 }),
+    )
+    renderPicker()
+    await screen.findByText('渋谷')
+    await screen.findByText('新宿')
+
+    // q 入力中は filter は適用されない (blur まで保留)
+    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
+    expect(screen.getByText('新宿')).toBeInTheDocument()
+
+    // blur で適用 → 渋谷のみ残る
+    await user.tab()
+    await waitFor(() => {
+      expect(screen.queryByText('新宿')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('渋谷')).toBeInTheDocument()
+  })
+
+  it('US-065: マッチする駅が無いときは「見つかりませんでした」', async () => {
     const user = userEvent.setup()
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
     )
     renderPicker()
-
-    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
-    await user.click(screen.getByRole('button', { name: '検索' }))
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toContain('/api/stations')
-    expect(url).toContain('q=%E6%B8%8B') // "渋" url-encoded
-    expect(init.credentials).toBe('include')
-
-    expect(await screen.findByText('渋谷')).toBeInTheDocument()
-    expect(screen.getByText('しぶや')).toBeInTheDocument()
-    // 接続路線の種別タグが描画されている (select option ではなく結果行内のタグ要素を限定検証)
-    expect(
-      screen.getByText('電車', { selector: 'span.tag-train' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('地下鉄', { selector: 'span.tag-subway' }),
-    ).toBeInTheDocument()
-  })
-
-  it('検索結果0件なら「該当する駅が見つかりませんでした」を出す', async () => {
-    const user = userEvent.setup()
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ stations: [] }), { status: 200 }),
-    )
-    renderPicker()
+    await screen.findByText('渋谷')
 
     await user.type(screen.getByLabelText('駅名 / よみがな'), 'ZZZ')
-    await user.click(screen.getByRole('button', { name: '検索' }))
-
+    await user.tab() // blur で filter 反映
     expect(
       await screen.findByText(
         '該当する駅が見つかりませんでした。条件を変えてお試しください',
@@ -208,16 +215,11 @@ describe('StationPicker', () => {
     ).toBeInTheDocument()
   })
 
-  it('API エラー時はバナーエラーを出す', async () => {
-    const user = userEvent.setup()
+  it('US-065: 初期 fetch が失敗するとバナーエラーを出す', async () => {
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: 'no_filter' }), { status: 400 }),
+      new Response(JSON.stringify({ error: 'server' }), { status: 500 }),
     )
     renderPicker()
-
-    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
-    await user.click(screen.getByRole('button', { name: '検索' }))
-
     expect(
       await screen.findByText(
         '駅マスタの取得に失敗しました。再読み込みをお試しください',
@@ -238,10 +240,6 @@ describe('StationPicker', () => {
       new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
     )
     renderPicker()
-
-    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
-    await user.click(screen.getByRole('button', { name: '検索' }))
-
     await screen.findByText('渋谷')
     await user.click(screen.getByRole('button', { name: '渋谷 を選択' }))
 
@@ -254,7 +252,6 @@ describe('StationPicker', () => {
 
   it('単独画面 (window.opener 無し) では選択しても postMessage / close が走らない', async () => {
     const user = userEvent.setup()
-    // opener を null に固定
     Object.defineProperty(window, 'opener', {
       value: null,
       configurable: true,
@@ -264,10 +261,6 @@ describe('StationPicker', () => {
       new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
     )
     renderPicker()
-
-    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
-    await user.click(screen.getByRole('button', { name: '検索' }))
-
     await screen.findByText('渋谷')
     await user.click(screen.getByRole('button', { name: '渋谷 を選択' }))
 
@@ -287,21 +280,23 @@ describe('StationPicker', () => {
     expect(closeMock).toHaveBeenCalled()
   })
 
-  it('クリアボタンで検索条件と結果がリセットされる', async () => {
+  it('US-065: クリアボタンでフィルタ条件 (q + 種別 + 路線 + 運営会社) がリセットされる', async () => {
     const user = userEvent.setup()
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+      new Response(JSON.stringify(SORT_SAMPLE), { status: 200 }),
     )
     renderPicker()
-
-    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
-    await user.click(screen.getByRole('button', { name: '検索' }))
     await screen.findByText('渋谷')
 
-    await user.click(screen.getByRole('button', { name: 'クリア' }))
+    await user.type(screen.getByLabelText('駅名 / よみがな'), '渋')
+    await user.tab()
+    expect(screen.queryByText('新宿')).not.toBeInTheDocument()
 
+    await user.click(screen.getByRole('button', { name: 'クリア' }))
     expect(screen.getByLabelText('駅名 / よみがな')).toHaveValue('')
-    expect(screen.queryByText('渋谷')).not.toBeInTheDocument()
+    // クリア後は全件再表示 (新宿も復活)
+    expect(screen.getByText('渋谷')).toBeInTheDocument()
+    expect(screen.getByText('新宿')).toBeInTheDocument()
   })
 
   describe('US-017 種別↔路線 cascade フィルタ', () => {
@@ -382,10 +377,10 @@ describe('StationPicker', () => {
     })
   })
 
-  describe('US-016 popup から条件を引き継いで自動検索', () => {
-    it('?kind=train で開いた時、種別が pre-fill され自動検索される', async () => {
+  describe('US-016 popup から条件を引き継ぐ', () => {
+    it('?kind=train で開いた時、種別が pre-fill される (US-065: filter は client-side で適用)', async () => {
       fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+        new Response(JSON.stringify(SORT_SAMPLE), { status: 200 }),
       )
       renderPicker('/stations?kind=train')
       // 種別が pre-fill
@@ -394,13 +389,17 @@ describe('StationPicker', () => {
           (screen.getByLabelText('種別') as HTMLSelectElement).value,
         ).toBe('train')
       })
-      // 自動検索が走り、API が呼ばれた
+      // /api/stations は filter なしの全件取得で 1 回だけ呼ばれる
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
       const [url] = fetchMock.mock.calls[0]!
-      expect(url).toContain('kind=train')
+      expect(url).toBe('http://localhost:3000/api/stations')
+      // train 路線の駅 (渋谷, 新宿) が表示, subway only の池袋は filter で除外
+      expect(await screen.findByText('渋谷')).toBeInTheDocument()
+      expect(screen.getByText('新宿')).toBeInTheDocument()
+      expect(screen.queryByText('池袋')).not.toBeInTheDocument()
     })
 
-    it('?kind=train&line=jr-tokaido で開いた時、両方 pre-fill + 自動検索', async () => {
+    it('?kind=train&line=jr-tokaido で開いた時、両方 pre-fill', async () => {
       fetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify({ stations: [] }), { status: 200 }),
       )
@@ -413,15 +412,11 @@ describe('StationPicker', () => {
           'jr-tokaido',
         )
       })
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-      const [url] = fetchMock.mock.calls[0]!
-      expect(url).toContain('kind=train')
-      expect(url).toContain('line=jr-tokaido')
     })
 
-    it('?q=渋 で開いた時、キーワードが pre-fill + 自動検索', async () => {
+    it('?q=渋 で開いた時、キーワードが pre-fill + filter 適用', async () => {
       fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+        new Response(JSON.stringify(SORT_SAMPLE), { status: 200 }),
       )
       renderPicker('/stations?q=' + encodeURIComponent('渋'))
       await waitFor(() => {
@@ -429,24 +424,28 @@ describe('StationPicker', () => {
           (screen.getByLabelText('駅名 / よみがな') as HTMLInputElement).value,
         ).toBe('渋')
       })
+      // 渋谷のみ残る (新宿/池袋は除外)
+      expect(await screen.findByText('渋谷')).toBeInTheDocument()
+      expect(screen.queryByText('新宿')).not.toBeInTheDocument()
+    })
+
+    it('US-065: URL クエリ無しでも初回マウント時に全件 fetch する', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(SAMPLE_RESPONSE), { status: 200 }),
+      )
+      renderPicker('/stations')
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     })
 
-    it('URL クエリ無しでは自動検索しない', async () => {
-      renderPicker('/stations')
-      // 短いラグの後でも fetch が呼ばれていないこと
-      await new Promise((r) => setTimeout(r, 100))
-      expect(fetchMock).not.toHaveBeenCalled()
-    })
-
-    it('不正な kind 値 (?kind=spaceship) は無視される (空に倒す)', async () => {
+    it('不正な kind 値 (?kind=spaceship) は空に倒される', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ stations: [] }), { status: 200 }),
+      )
       renderPicker('/stations?kind=spaceship')
-      await new Promise((r) => setTimeout(r, 100))
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
       expect((screen.getByLabelText('種別') as HTMLSelectElement).value).toBe(
         '',
       )
-      // 不正 kind のみだと有効条件が無いので自動検索しない
-      expect(fetchMock).not.toHaveBeenCalled()
     })
   })
 
@@ -457,8 +456,7 @@ describe('StationPicker', () => {
         new Response(JSON.stringify(SORT_SAMPLE), { status: 200 }),
       )
       renderPicker()
-      await user.type(screen.getByLabelText('駅名 / よみがな'), 'a')
-      await user.click(screen.getByRole('button', { name: '検索' }))
+      // US-065: 初回マウントで自動 fetch → 結果表示
       await screen.findByText('渋谷')
       return user
     }
