@@ -374,7 +374,8 @@ app.get('/api/stations', async (c) => {
       operatorRef: { select: { id: true, name: true } },
     },
     orderBy: { name: 'asc' },
-    take: 50,
+    // US-064: 50 件で打ち切ると 50 駅以上ある路線で必要な駅が選べないため上限を撤去。
+    // DB 全体でも 800〜900 件規模で 1 画面に出して問題ない量のため pagination は導入しない。
   })
 
   return c.json({
