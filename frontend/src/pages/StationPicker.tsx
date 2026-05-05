@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import { SortableTh, type SortDir } from '../components/SortableTh'
 import { UserBadge } from '../components/UserBadge'
@@ -20,6 +20,9 @@ type ApiStation = {
   kana: string
   /** US-030: 駅番号 (例: "CA68")。手動作成 / 番号未設定駅は空文字。 */
   code: string
+  /** US-065: クライアント側 operator filter 用 */
+  operatorId: string | null
+  operatorName: string | null
   lines: Array<{ id: string; name: string; kind: LineKind; operator: string | null }>
 }
 
@@ -75,7 +78,6 @@ export function StationPicker() {
   )
   const [lineId, setLineId] = useState(initialLine)
   const [stations, setStations] = useState<ApiStation[] | null>(null)
-  const [searched, setSearched] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const linesState = useLines({ enabled: !!session })
@@ -143,10 +145,70 @@ export function StationPicker() {
     }
   }
 
-  const sortedStations = useMemo<ApiStation[] | null>(() => {
+  // US-065: 初回マウント時に全件取得 → 以降はクライアント側で絞り込み
+  useEffect(() => {
+    if (isPending || !session) return
+    let cancelled = false
+    async function loadAll() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch('http://localhost:3000/api/stations', {
+          method: 'GET',
+          credentials: 'include',
+        })
+        if (cancelled) return
+        if (!res.ok) {
+          setError('駅マスタの取得に失敗しました。再読み込みをお試しください')
+          setStations([])
+          return
+        }
+        const body = (await res.json()) as ApiResponse
+        setStations(body.stations)
+      } catch {
+        if (!cancelled) {
+          setError('駅マスタの取得に失敗しました。再読み込みをお試しください')
+          setStations([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void loadAll()
+    return () => {
+      cancelled = true
+    }
+  }, [isPending, session])
+
+  // US-065: q (駅名 / よみがな) は blur で確定する。focus 中は filter 反映しない。
+  const [appliedQ, setAppliedQ] = useState(initialQ)
+  function handleQBlur() {
+    setAppliedQ(q.trim())
+  }
+
+  if (!isPending && !session) {
+    return <Navigate to="/login" replace />
+  }
+
+  // US-065: クライアント側で絞り込み + ソート
+  const filteredStations = useMemo<ApiStation[] | null>(() => {
     if (!stations) return null
-    if (!sortBy) return stations
-    const arr = [...stations]
+    return stations.filter((s) => {
+      if (operator && s.operatorId !== operator) return false
+      if (kind && !s.lines.some((l) => l.kind === kind)) return false
+      if (lineId && !s.lines.some((l) => l.id === lineId)) return false
+      if (appliedQ) {
+        const qq = appliedQ
+        if (!s.name.includes(qq) && !s.kana.includes(qq)) return false
+      }
+      return true
+    })
+  }, [stations, operator, kind, lineId, appliedQ])
+
+  const sortedStations = useMemo<ApiStation[] | null>(() => {
+    if (!filteredStations) return null
+    if (!sortBy) return filteredStations
+    const arr = [...filteredStations]
     arr.sort((a, b) => {
       let cmp = 0
       if (sortBy === 'kind') {
@@ -173,80 +235,14 @@ export function StationPicker() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return arr
-  }, [stations, sortBy, sortDir])
-
-  // US-016 自動検索フラグ。初期 URL に条件があれば、認証確定後 1 度だけ自動実行する。
-  const autoSearchedRef = useRef(false)
-
-  async function executeSearch(
-    qVal: string,
-    kindVal: '' | LineKind,
-    lineIdVal: string,
-    operatorVal: string = '',
-  ) {
-    setError(null)
-    setSearched(true)
-    if (!qVal.trim() && !kindVal && !lineIdVal && !operatorVal) {
-      setError('駅名・運営会社・種別・路線のいずれかを入力または選択してください')
-      setStations([])
-      return
-    }
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (qVal.trim()) params.set('q', qVal.trim())
-      if (operatorVal) params.set('operator', operatorVal)
-      if (kindVal) params.set('kind', kindVal)
-      if (lineIdVal) params.set('line', lineIdVal)
-      const res = await fetch(`http://localhost:3000/api/stations?${params}`, {
-        method: 'GET',
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        setError('駅マスタの取得に失敗しました。再読み込みをお試しください')
-        setStations([])
-        return
-      }
-      const body = (await res.json()) as ApiResponse
-      setStations(body.stations)
-    } catch {
-      setError('駅マスタの取得に失敗しました。再読み込みをお試しください')
-      setStations([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // US-016: 認証確定後に URL 条件があれば 1 回だけ自動検索
-  useEffect(() => {
-    if (isPending || !session) return
-    if (autoSearchedRef.current) return
-    if (!initialQ && !initialKind && !initialLine && !initialOperator) return
-    autoSearchedRef.current = true
-    void executeSearch(
-      initialQ,
-      VALID_KINDS.has(initialKind) ? (initialKind as LineKind) : '',
-      initialLine,
-      initialOperator,
-    )
-  }, [isPending, session, initialQ, initialKind, initialLine, initialOperator])
-
-  if (!isPending && !session) {
-    return <Navigate to="/login" replace />
-  }
-
-  async function handleSearch(e: FormEvent) {
-    e.preventDefault()
-    await executeSearch(q, kind, lineId, operator)
-  }
+  }, [filteredStations, sortBy, sortDir])
 
   function handleClear() {
     setQ('')
+    setAppliedQ('')
     setOperator('')
     setKind('')
     setLineId('')
-    setStations(null)
-    setSearched(false)
     setError(null)
   }
 
@@ -289,7 +285,9 @@ export function StationPicker() {
       </div>
 
       <div className="body">
-        <form className="search-row" onSubmit={handleSearch} noValidate>
+        {/* US-065: 全件 client-side filter のため <form> の submit による検索は廃止。
+            dropdown は change で即時反映, q は blur で確定する。 */}
+        <div className="search-row">
           <div className="group">
             <label htmlFor="picker-q">駅名 / よみがな</label>
             <input
@@ -299,6 +297,13 @@ export function StationPicker() {
               maxLength={30}
               value={q}
               onChange={(e) => setQ(e.target.value)}
+              onBlur={handleQBlur}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
             />
           </div>
           {/* US-050: 運営会社 → 種別 → 路線 順 + cascade */}
@@ -354,9 +359,7 @@ export function StationPicker() {
               ))}
             </select>
           </div>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? '検索中…' : '検索'}
-          </button>
+          {/* US-065: 検索ボタンは廃止 (filter は即時反映)。クリアのみ残す。 */}
           <button
             type="button"
             className="btn btn-secondary"
@@ -365,11 +368,11 @@ export function StationPicker() {
           >
             クリア
           </button>
-        </form>
+        </div>
 
         {error && <div className="banner is-shown">{error}</div>}
 
-        {searched && sortedStations && sortedStations.length === 0 && !error && (
+        {sortedStations && sortedStations.length === 0 && !error && !loading && (
           <div className="empty">
             該当する駅が見つかりませんでした。条件を変えてお試しください
           </div>
