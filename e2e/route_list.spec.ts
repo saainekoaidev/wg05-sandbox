@@ -196,7 +196,9 @@ test.describe('US-004 経路一覧フロー', () => {
     page,
   }) => {
     await loginViaUi(page)
-    await page.getByRole('link', { name: 'ログアウト' }).click()
+    // US-061: ログアウトは Account 画面に集約
+    await page.goto('/account')
+    await page.getByRole('button', { name: 'ログアウト' }).click()
     await expect(page).toHaveURL('/login')
 
     await page.goto('/routes')

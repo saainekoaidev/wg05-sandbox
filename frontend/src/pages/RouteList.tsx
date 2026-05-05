@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { UserBadge } from '../components/UserBadge'
-import { signOut, useSession } from '../lib/auth'
+import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
 
 type ApiSegment = {
@@ -139,11 +139,6 @@ export function RouteList() {
 
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />
-
-  async function handleLogout() {
-    await signOut()
-    navigate('/login', { replace: true })
-  }
 
   // 一覧から経路を削除する。設計書 §6.1 / §4 の文言を踏襲。
   async function handleDelete(routeId: string) {
@@ -335,19 +330,7 @@ export function RouteList() {
         )}
       </div>
 
-      {/* US-019: ユーザー識別はヘッダ右上の UserBadge に移行。
-          フッタにはログアウトリンクのみ残す。 */}
-      <div className="foot">
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault()
-            handleLogout()
-          }}
-        >
-          ログアウト
-        </a>
-      </div>
+      {/* US-061: ログアウトは Account 画面に集約したためフッタから削除 */}
     </div>
   )
 }
