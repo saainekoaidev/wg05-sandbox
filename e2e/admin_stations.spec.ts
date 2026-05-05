@@ -157,8 +157,8 @@ test.describe('US-013 駅マスタ管理 (admin)', () => {
 
     const row = page.locator('table tbody tr', { hasText: name })
     await expect(row).toHaveCount(1)
-    // 自動採番された id (cuid は通常英数字混在で長め)
-    const idText = await row.locator('td code').first().textContent()
+    // US-055: ID 列は行番号 (#) に置換され, 実 ID は <td title="..."> で参照する
+    const idText = await row.locator('td').first().getAttribute('title')
     expect(idText && idText.length).toBeGreaterThan(5)
 
     // 削除
