@@ -524,6 +524,39 @@ describe('AdminStations', () => {
     })
   })
 
+  describe('US-055 ソート', () => {
+    it('駅名ヘッダクリックで駅名昇順 → 降順切替', async () => {
+      const user = userEvent.setup()
+      mockAdminInitialFetch([STATION_GIFU, STATION_NAGOYA])
+      renderAdminStations()
+      await screen.findByText('岐阜')
+
+      const nameHeader = screen.getByRole('columnheader', { name: /駅名/ })
+      // 1 回目: 昇順 (岐阜 → 名古屋)
+      await user.click(nameHeader)
+      const rows1 = screen.getAllByRole('row').slice(1) // header 除外
+      expect(within(rows1[0]!).getByText('岐阜')).toBeInTheDocument()
+      expect(within(rows1[1]!).getByText('名古屋')).toBeInTheDocument()
+
+      // 2 回目: 降順 (名古屋 → 岐阜)
+      await user.click(nameHeader)
+      const rows2 = screen.getAllByRole('row').slice(1)
+      expect(within(rows2[0]!).getByText('名古屋')).toBeInTheDocument()
+      expect(within(rows2[1]!).getByText('岐阜')).toBeInTheDocument()
+    })
+
+    it('US-055: ID 列ではなく行番号 (#) を表示', async () => {
+      mockAdminInitialFetch([STATION_NAGOYA])
+      renderAdminStations()
+      await screen.findByText('名古屋')
+      // ID は表示されない (行番号置換済)
+      expect(screen.queryByText('stn-nagoya')).not.toBeInTheDocument()
+      // 行番号 1 が出る
+      const rows = screen.getAllByRole('row').slice(1)
+      expect(within(rows[0]!).getByText('1')).toBeInTheDocument()
+    })
+  })
+
   describe('US-051 リセットボタン', () => {
     it('リセットボタンで 運営会社 + 種別 + 路線 が全て初期化される', async () => {
       const user = userEvent.setup()

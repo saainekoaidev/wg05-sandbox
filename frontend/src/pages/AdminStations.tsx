@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { SortableTh, type SortDir } from '../components/SortableTh'
 import { UserBadge } from '../components/UserBadge'
 import { useLines, type LineKind } from '../lib/lines'
 import { useOperators } from '../lib/operators'
@@ -267,6 +268,53 @@ export function AdminStations() {
     })
   }, [stations, kindFilter, lineFilter, operatorFilter])
 
+  // US-055: 一覧ソート (駅名 / よみがな / 運営会社 / 接続路線)
+  type SortColumn = 'name' | 'kana' | 'operator' | 'lines'
+  const [sortBy, setSortBy] = useState<SortColumn | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  function handleSort(col: SortColumn) {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(col)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedStations = useMemo<AdminStation[] | null>(() => {
+    if (!filteredStations) return null
+    if (!sortBy) return filteredStations
+    const arr = [...filteredStations]
+    arr.sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'name') {
+        cmp = a.name.localeCompare(b.name, 'ja')
+      } else if (sortBy === 'kana') {
+        cmp = a.kana.localeCompare(b.kana, 'ja')
+      } else if (sortBy === 'operator') {
+        // 未設定は末尾
+        const oa = a.operatorName ?? ''
+        const ob = b.operatorName ?? ''
+        if (!oa && ob) return 1
+        if (oa && !ob) return -1
+        cmp = oa.localeCompare(ob, 'ja')
+      } else {
+        // lines: 接続路線の最初の路線名 + 駅番号で並べる
+        const la = a.lines[0]
+        const lb = b.lines[0]
+        if (!la && lb) return 1
+        if (la && !lb) return -1
+        if (!la && !lb) return 0
+        const na = `${la!.name} ${la!.code}`
+        const nb = `${lb!.name} ${lb!.code}`
+        cmp = na.localeCompare(nb, 'ja')
+      }
+      if (cmp === 0) return 0
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return arr
+  }, [filteredStations, sortBy, sortDir])
+
   const [banner, setBanner] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -510,30 +558,55 @@ export function AdminStations() {
               </button>
             </div>
 
-            {filteredStations && filteredStations.length === 0 && (
+            {sortedStations && sortedStations.length === 0 && (
               <div className="empty">
                 該当する駅がありません。フィルタを変更してください。
               </div>
             )}
 
-            {filteredStations && filteredStations.length > 0 && (
+            {sortedStations && sortedStations.length > 0 && (
               <div className="table-wrap">
                 <table className="admin-stations-table">
                   <thead>
                     <tr>
-                      <th>ID</th>
-                      <th>駅名</th>
-                      <th>よみがな</th>
-                      <th>運営会社</th>
-                      <th>接続路線 / 駅番号</th>
+                      {/* US-055: ID 列を行番号に置き換えて横スクロールを抑制 */}
+                      <th className="col-num">#</th>
+                      <SortableTh
+                        label="駅名"
+                        column={'name' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
+                      <SortableTh
+                        label="よみがな"
+                        column={'kana' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
+                      <SortableTh
+                        label="運営会社"
+                        column={'operator' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
+                      <SortableTh
+                        label="接続路線 / 駅番号"
+                        column={'lines' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
                       <th className="col-actions">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredStations.map((station) => (
+                    {sortedStations.map((station, idx) => (
                       <tr key={station.id}>
-                        <td className="admin-stn-id">
-                          <code>{station.id}</code>
+                        <td className="col-num" title={station.id}>
+                          {idx + 1}
                         </td>
                         <td className="admin-stn-name">{station.name}</td>
                         <td className="admin-stn-kana">{station.kana}</td>

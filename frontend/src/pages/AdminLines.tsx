@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { SortableTh, type SortDir } from '../components/SortableTh'
 import { UserBadge } from '../components/UserBadge'
 import { useLines, type ApiLine, type LineKind } from '../lib/lines'
 import { useOperators } from '../lib/operators'
@@ -230,6 +231,45 @@ export function AdminLines() {
     })
   }, [linesState.lines, operatorFilter, kindFilter])
 
+  // US-055: ソート (路線名 / 運営会社 / 種別 / 参照経路 / 接続駅)
+  type SortColumn = 'name' | 'operator' | 'kind' | 'segments' | 'stations'
+  const [sortBy, setSortBy] = useState<SortColumn | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  function handleSort(col: SortColumn) {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(col)
+      setSortDir('asc')
+    }
+  }
+  const sortedLines = useMemo<ApiLine[] | null>(() => {
+    if (!filteredLines) return null
+    if (!sortBy) return filteredLines
+    const arr = [...filteredLines]
+    arr.sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'name') {
+        cmp = a.name.localeCompare(b.name, 'ja')
+      } else if (sortBy === 'operator') {
+        const oa = a.operatorName ?? a.operator ?? ''
+        const ob = b.operatorName ?? b.operator ?? ''
+        if (!oa && ob) return 1
+        if (oa && !ob) return -1
+        cmp = oa.localeCompare(ob, 'ja')
+      } else if (sortBy === 'kind') {
+        cmp = a.kind.localeCompare(b.kind, 'en')
+      } else if (sortBy === 'segments') {
+        cmp = a.routeSegmentCount - b.routeSegmentCount
+      } else {
+        cmp = a.stationCount - b.stationCount
+      }
+      if (cmp === 0) return 0
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return arr
+  }, [filteredLines, sortBy, sortDir])
+
   if (isPending) return null
   if (!session) return <Navigate to="/login" replace />
 
@@ -410,34 +450,69 @@ export function AdminLines() {
               </button>
             </div>
 
-            {filteredLines && filteredLines.length === 0 && (
+            {sortedLines && sortedLines.length === 0 && (
               <div className="empty">
                 該当する路線がありません。フィルタを変更してください。
               </div>
             )}
 
-            {filteredLines && filteredLines.length > 0 && (
+            {sortedLines && sortedLines.length > 0 && (
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>ID</th>
-                      <th>路線名</th>
-                      <th>運営会社</th>
-                      <th>種別</th>
-                      <th className="col-num">参照経路</th>
-                      <th className="col-num">接続駅</th>
+                      {/* US-055: 行番号 + 各列ソート対応 */}
+                      <th className="col-num">#</th>
+                      <SortableTh
+                        label="路線名"
+                        column={'name' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
+                      <SortableTh
+                        label="運営会社"
+                        column={'operator' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
+                      <SortableTh
+                        label="種別"
+                        column={'kind' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      />
+                      <SortableTh
+                        label="参照経路"
+                        column={'segments' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="col-num"
+                      />
+                      <SortableTh
+                        label="接続駅"
+                        column={'stations' as const}
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="col-num"
+                      />
                       <th className="col-actions">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedKinds.flatMap((k) =>
-                      filteredLines
-                        .filter((l) => l.kind === k)
-                        .map((line) => (
+                    {(sortBy
+                      ? sortedLines
+                      : sortedKinds.flatMap((k) =>
+                          sortedLines.filter((l) => l.kind === k),
+                        )
+                    ).map((line, idx) => (
                       <tr key={line.id}>
-                        <td>
-                          <code>{line.id}</code>
+                        <td className="col-num" title={line.id}>
+                          {idx + 1}
                         </td>
                         <td>{line.name}</td>
                         <td>
@@ -485,8 +560,7 @@ export function AdminLines() {
                           </div>
                         </td>
                       </tr>
-                    )),
-                )}
+                    ))}
                   </tbody>
                 </table>
               </div>

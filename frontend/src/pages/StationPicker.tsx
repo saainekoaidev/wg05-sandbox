@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
+import { SortableTh, type SortDir } from '../components/SortableTh'
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
@@ -25,7 +26,6 @@ type ApiStation = {
 type ApiResponse = { stations: ApiStation[] }
 
 type SortColumn = 'kind' | 'kana' | 'code'
-type SortDir = 'asc' | 'desc'
 
 // US-030: 種別ソート時の優先順 (電車 < 地下鉄 < バス < その他)。
 // 駅が複数路線に接続する場合は priority が最小の kind を sort key にする。
@@ -461,45 +461,4 @@ export function StationPicker() {
  * US-030: ソート可能な <th>。クリックで該当列ソート ON / 同列を再度クリックで方向反転。
  * ソート中の列は ▲ (asc) / ▼ (desc) を表示する。
  */
-function SortableTh({
-  label,
-  column,
-  sortBy,
-  sortDir,
-  onSort,
-}: {
-  label: string
-  column: SortColumn
-  sortBy: SortColumn | null
-  sortDir: SortDir
-  onSort: (col: SortColumn) => void
-}) {
-  const active = sortBy === column
-  const indicator = active ? (sortDir === 'asc' ? '▲' : '▼') : ''
-  const ariaSort: 'ascending' | 'descending' | 'none' = active
-    ? sortDir === 'asc'
-      ? 'ascending'
-      : 'descending'
-    : 'none'
-  return (
-    <th
-      aria-sort={ariaSort}
-      onClick={() => onSort(column)}
-      style={{ cursor: 'pointer', userSelect: 'none' }}
-      title={
-        active
-          ? sortDir === 'asc'
-            ? `${label} (昇順)。クリックで降順へ`
-            : `${label} (降順)。クリックで昇順へ`
-          : `${label} で並び替え`
-      }
-    >
-      {label}
-      {active && (
-        <span aria-hidden="true" style={{ marginLeft: 4 }}>
-          {indicator}
-        </span>
-      )}
-    </th>
-  )
-}
+// US-055: SortableTh は frontend/src/components/SortableTh.tsx に共通化済
