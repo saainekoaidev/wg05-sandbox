@@ -317,18 +317,20 @@ export function RouteDetail() {
                     <div className="seg-no">
                       {String(seg.orderIndex).padStart(2, '0')}
                     </div>
-                    {/* US-058: 運営会社 + 種別 + 路線名 + 出発→到着 を 1 行で表示 */}
-                    <div className="seg-body seg-body--inline">
-                      {operatorName && (
-                        <span className="tag tag-operator">{operatorName}</span>
-                      )}
-                      <span className={KIND_TAG_CLASS[seg.kind]}>
-                        {KIND_LABEL[seg.kind]}
-                      </span>
-                      {line && <span className="seg-line">{line.name}</span>}
-                      <span className="seg-flow">
+                    {/* US-063: 2 段構成 — 1 段目: 運営会社 + 種別 + 路線名 / 2 段目: 出発→到着 */}
+                    <div className="seg-body">
+                      <div className="seg-line-row">
+                        {operatorName && (
+                          <span className="tag tag-operator">{operatorName}</span>
+                        )}
+                        <span className={KIND_TAG_CLASS[seg.kind]}>
+                          {KIND_LABEL[seg.kind]}
+                        </span>
+                        {line && <span className="seg-line">{line.name}</span>}
+                      </div>
+                      <div className="seg-flow">
                         {seg.fromStation} → {seg.toStation}
-                      </span>
+                      </div>
                     </div>
                     <div className="seg-fare">¥{seg.fare.toLocaleString()}</div>
                   </div>
