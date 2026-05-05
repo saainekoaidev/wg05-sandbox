@@ -50,15 +50,16 @@
   }
 }
 
+/* US-059: Vite テンプレートの残り (width: 1126px / border-inline) を撤去し,
+   shell--wide (1200px) が viewport いっぱいに展開できるようにする。
+   align-items: center で各画面の .shell を中央寄せ。 */
 #root {
-  width: 1126px;
-  max-width: 100%;
+  width: 100%;
   margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
+  align-items: center;
   box-sizing: border-box;
 }
 

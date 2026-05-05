@@ -26,8 +26,21 @@ vi.mock('../lib/lines', () => ({
   ],
   useLines: () => ({
     lines: [
-      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: null, routeSegmentCount: 0, stationCount: 0 },
-      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: null, routeSegmentCount: 0, stationCount: 0 },
+      { id: 'jr-yamanote', name: 'JR山手線', kind: 'train', operator: 'JR東日本', operatorId: 'jr-east', operatorName: 'JR東日本', routeSegmentCount: 0, stationCount: 0 },
+      { id: 'metro-ginza', name: '東京メトロ銀座線', kind: 'subway', operator: '東京メトロ', operatorId: 'metro', operatorName: '東京メトロ', routeSegmentCount: 0, stationCount: 0 },
+    ],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
+
+// US-049 / US-059: operator マスタ stub
+vi.mock('../lib/operators', () => ({
+  useOperators: () => ({
+    operators: [
+      { id: 'jr-east', name: 'JR東日本', aliases: [], kinds: ['train'] },
+      { id: 'metro', name: '東京メトロ', aliases: [], kinds: ['subway'] },
     ],
     loading: false,
     error: null,
@@ -48,6 +61,7 @@ const ROUTE = {
       orderIndex: 1,
       kind: 'train' as const,
       lineId: 'jr-yamanote',
+      operatorId: 'jr-east',
       fromStation: '渋谷',
       toStation: '表参道',
       fare: 160,
@@ -57,6 +71,7 @@ const ROUTE = {
       orderIndex: 2,
       kind: 'subway' as const,
       lineId: 'metro-ginza',
+      operatorId: 'metro',
       fromStation: '表参道',
       toStation: '神田',
       fare: 160,

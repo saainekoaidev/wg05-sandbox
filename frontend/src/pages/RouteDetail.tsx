@@ -9,12 +9,15 @@ import {
 import { UserBadge } from '../components/UserBadge'
 import { useSession } from '../lib/auth'
 import { useLines, type LineKind } from '../lib/lines'
+import { useOperators } from '../lib/operators'
 
 type ApiSegment = {
   id: string
   orderIndex: number
   kind: LineKind
   lineId: string | null
+  /// US-059: operator を永続化
+  operatorId: string | null
   fromStation: string
   toStation: string
   fare: number
@@ -79,6 +82,7 @@ export function RouteDetail() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const linesState = useLines({ enabled: !!session })
+  const operatorsState = useOperators({ enabled: !!session })
   const lineById = useMemo(() => {
     const m = new Map<string, { name: string; operatorName: string | null }>()
     if (linesState.lines)
@@ -86,6 +90,13 @@ export function RouteDetail() {
         m.set(l.id, { name: l.name, operatorName: l.operatorName })
     return m
   }, [linesState.lines])
+  // US-059: operatorId → 名前 を引くマップ
+  const operatorNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    if (operatorsState.operators)
+      for (const o of operatorsState.operators) m.set(o.id, o.name)
+    return m
+  }, [operatorsState.operators])
 
   // 認証確定後に詳細を取得
   useEffect(() => {
@@ -296,6 +307,11 @@ export function RouteDetail() {
             <div className="segment-list">
               {state.route.segments.map((seg) => {
                 const line = seg.lineId ? lineById.get(seg.lineId) : undefined
+                // US-059: operator は segment.operatorId を優先, 無ければ line.operatorName fallback
+                const operatorName =
+                  (seg.operatorId && operatorNameById.get(seg.operatorId)) ||
+                  line?.operatorName ||
+                  null
                 return (
                   <div className="seg-item" key={seg.id}>
                     <div className="seg-no">
@@ -303,10 +319,8 @@ export function RouteDetail() {
                     </div>
                     {/* US-058: 運営会社 + 種別 + 路線名 + 出発→到着 を 1 行で表示 */}
                     <div className="seg-body seg-body--inline">
-                      {line?.operatorName && (
-                        <span className="tag tag-operator">
-                          {line.operatorName}
-                        </span>
+                      {operatorName && (
+                        <span className="tag tag-operator">{operatorName}</span>
                       )}
                       <span className={KIND_TAG_CLASS[seg.kind]}>
                         {KIND_LABEL[seg.kind]}

@@ -59,6 +59,8 @@ type ApiSegment = {
   orderIndex: number
   kind: LineKind
   lineId: string | null
+  /// US-059: operator を永続化
+  operatorId: string | null
   fromStation: string
   toStation: string
   fare: number
@@ -87,7 +89,8 @@ const STATION_PICKER_NAME = 'wg05-station-picker'
 
 function toFormSegment(s: ApiSegment): Segment {
   return {
-    operator: '',
+    // US-059: operatorId を永続データから直接 pre-fill
+    operator: s.operatorId ?? '',
     kind: s.kind,
     lineId: s.lineId ?? '',
     fromStation: s.fromStation,
@@ -417,6 +420,8 @@ export function RouteEdit() {
         name: name.trim() || null,
         updatedAt,
         segments: segments.map((s) => ({
+          // US-059: operator を永続化
+          operatorId: s.operator || null,
           kind: s.kind,
           lineId: s.lineId === '' ? null : s.lineId,
           fromStation: s.fromStation.trim(),

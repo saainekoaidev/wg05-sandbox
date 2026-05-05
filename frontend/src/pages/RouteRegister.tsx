@@ -300,6 +300,8 @@ export function RouteRegister() {
       const body = {
         name: name.trim() || null,
         segments: segments.map((s) => ({
+          // US-059: operator を永続化
+          operatorId: s.operator || null,
           kind: s.kind,
           lineId: s.lineId === '' ? null : s.lineId,
           fromStation: s.fromStation.trim(),

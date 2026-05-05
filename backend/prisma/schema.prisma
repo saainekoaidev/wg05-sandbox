@@ -84,20 +84,26 @@ model Route {
 /// 経路区間 (1経路につき 1〜10件)。
 /// kind は "train" | "subway" | "bus" | "other" のいずれか (app 層 zod で検証)。
 /// fromStation / toStation はフリー入力許容のため Station マスタへの FK にしない。
+/// US-059: operatorId は区間の運営会社 (UI 必須項目を永続化)。
 model RouteSegment {
-  id          String  @id @default(cuid())
+  id          String    @id @default(cuid())
   routeId     String
-  route       Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  route       Route     @relation(fields: [routeId], references: [id], onDelete: Cascade)
   orderIndex  Int
   kind        String
   lineId      String?
-  line        Line?   @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  line        Line?     @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  /// US-059: 経路区間の運営会社。新規登録時は必須 (zod で検証)。
+  /// 既存レコードに対しては nullable (migration で NULL 投入)。
+  operatorId  String?
+  operatorRef Operator? @relation("RouteSegmentOperator", fields: [operatorId], references: [id], onDelete: SetNull)
   fromStation String
   toStation   String
   fare        Int
 
   @@index([routeId, orderIndex])
   @@index([lineId])
+  @@index([operatorId])
 }
 
 /// 運営会社マスタ (US-049 / ADR 0019)。路線の所属事業者を表す。
@@ -105,14 +111,15 @@ model RouteSegment {
 /// kinds (US-052) は当該 operator が運営する路線種別 (train/subway/bus/other) を JSON 配列で保持。
 /// 各画面の種別 dropdown を operator で絞り込むために使う。空配列 = 絞り込み無し。
 model Operator {
-  id        String    @id
-  name      String    @unique
-  aliases   String    @default("[]")
-  kinds     String    @default("[]")
-  lines     Line[]
-  stations  Station[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id            String         @id
+  name          String         @unique
+  aliases       String         @default("[]")
+  kinds         String         @default("[]")
+  lines         Line[]
+  stations      Station[]
+  routeSegments RouteSegment[] @relation("RouteSegmentOperator")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 /// 路線マスタ (経路登録の路線セレクト + 駅マスタ検索のフィルタで参照)。
