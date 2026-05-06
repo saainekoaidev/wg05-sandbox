@@ -55,7 +55,10 @@ body {
 }
 /* US-022: 経路詳細 (S05) を含む横長画面を更に拡げて, action ボタンの折り返しを防ぐ。 */
 /* US-058: 一覧画面・詳細画面の横幅を 1080 → 1200 px に拡張 (運営会社列やサマリ表示の余裕を確保) */
-.shell--wide { max-width: 1200px; }
+/* US-067: 経路詳細の SEGMENTS 行 (運営会社+種別+路線) の折り返しを抑制するため
+   1200 → 1400 px に拡張。横 padding は .shell--wide > .body セレクタで縮小する。 */
+.shell--wide { max-width: 1400px; }
+.shell--wide > .body { padding-left: 28px; padding-right: 28px; }
 
 /* ヘッダー */
 .head {
@@ -571,12 +574,14 @@ textarea.is-error:focus {
   margin-top: 8px;
   background: var(--blue-50);
   border-radius: 12px;
-  padding: 6px 18px;
+  /* US-067: 横 padding 18 → 10 で seg-body 幅を確保 */
+  padding: 6px 10px;
 }
 .segment-list .seg-item {
   display: flex;
   align-items: center;
-  gap: 14px;
+  /* US-067: 子要素間 gap 14 → 10 で seg-body 幅を更に確保 */
+  gap: 10px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
