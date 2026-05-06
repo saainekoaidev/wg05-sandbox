@@ -764,7 +764,9 @@ export function RouteEdit() {
                       aria-label={`区間${idx + 1} 運賃`}
                       placeholder="160"
                       inputMode="numeric"
-                      min={MIN_FARE}
+                      /* US-074: step={10} の step base を 0 に揃えるため min を 0 に。
+                         MIN_FARE=1 の業務ルールは JS validation で担保。 */
+                      min={0}
                       max={MAX_FARE}
                       step={10}
                       value={seg.fareInput}
