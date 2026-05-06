@@ -574,17 +574,21 @@ textarea.is-error:focus {
   margin-top: 8px;
   background: var(--blue-50);
   border-radius: 12px;
-  /* US-067: 横 padding 18 → 10 で seg-body 幅を確保 */
-  padding: 6px 10px;
-  /* US-068: seg-body の min-width: 320px により seg-item 合計最小幅 ~470px。
-     これより viewport が狭い場合は横スクロールで対応 (clipping 回避)。 */
+  /* US-067: 横 padding 18 → 10 で seg-body 幅を確保
+     US-069: 更に 10 → 6 に詰めて seg-body 320 を抱えても panel に収まるように */
+  padding: 6px 6px;
+  /* US-068: seg-body min-width: 320 により seg-item 合計最小幅 ~470px (US-068 当時)。
+     US-069 で seg-fare 80 → 64, gap 10 → 8 に圧縮し合計 ~438px に縮小。typical viewport
+     (>= 480px) では scrollbar が出ない。それより狭い viewport の安全網として
+     overflow-x: auto は維持 (clipping 回避)。 */
   overflow-x: auto;
 }
 .segment-list .seg-item {
   display: flex;
   align-items: center;
-  /* US-067: 子要素間 gap 14 → 10 で seg-body 幅を更に確保 */
-  gap: 10px;
+  /* US-067: 子要素間 gap 14 → 10 で seg-body 幅を更に確保
+     US-069: 更に 10 → 8 に詰めて typical viewport で scrollbar が出ないようにする */
+  gap: 8px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
@@ -605,7 +609,10 @@ textarea.is-error:focus {
   white-space: nowrap;
 }
 .segment-list .seg-fare {
-  flex: 0 0 80px;
+  /* US-069: 80 → 64px。¥99,999 までは tabular-nums の 14px font で 60-63px に収まるため
+     本サンドボックスの想定範囲 (区間運賃) では十分。圧縮で seg-item 合計を抑え
+     typical viewport で overflow-x scrollbar を出さない。 */
+  flex: 0 0 64px;
   text-align: right;
   color: var(--ink);
   font-weight: 600;
