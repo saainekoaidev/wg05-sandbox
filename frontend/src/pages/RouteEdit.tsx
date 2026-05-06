@@ -766,6 +766,7 @@ export function RouteEdit() {
                       inputMode="numeric"
                       min={MIN_FARE}
                       max={MAX_FARE}
+                      step={10}
                       value={seg.fareInput}
                       onChange={(e) =>
                         updateSegment(idx, { fareInput: e.target.value })
