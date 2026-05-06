@@ -576,6 +576,9 @@ textarea.is-error:focus {
   border-radius: 12px;
   /* US-067: 横 padding 18 → 10 で seg-body 幅を確保 */
   padding: 6px 10px;
+  /* US-068: seg-body の min-width: 320px により seg-item 合計最小幅 ~470px。
+     これより viewport が狭い場合は横スクロールで対応 (clipping 回避)。 */
+  overflow-x: auto;
 }
 .segment-list .seg-item {
   display: flex;
@@ -763,16 +766,17 @@ textarea.is-error:focus {
 
 /* 区間表示 (read-only): 種別タグ + 路線名 を出発→到着の上に表示 */
 /* US-063: 出発駅 → 到着駅 を 2 段目に置く 2 段構成。
-   US-066: 以前は min-width: 360px を強制していたが, narrow viewport (~580px)
-   で seg-item 合計幅が segment-list を超え seg-fare の末尾文字が clip された。
-   駅名の文字単位改行は .seg-flow の white-space: nowrap で担保するため, ここでは
-   min-width: 0 にして flex item の auto min-width を抑止し, 収縮可能にする。 */
+   US-068: データ駆動 min-width。駅マスタ最長駅名 10 文字 (例「総合リハビリセンター」)
+   を 2 つ " → " で繋いだケース (10ch × 14px × 2 + 22px ≈ 302px) を常に 1 行に収める
+   ため 320px を恒常的に確保。短い駅名でもこの幅をキープし操作行 (運営会社+種別+路線)
+   の折り返しも実質的に解消する。viewport がこの最小幅を下回る場合は親 .segment-list
+   側で overflow-x: auto により横スクロールに切り替える (US-066 の seg-fare clip も回避)。 */
 .segment-list .seg-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;
+  min-width: 320px;
 }
 /* US-058: 運営会社 + 種別 + 路線名 + 出発→到着 を 1 行で表示 */
 .segment-list .seg-body--inline {
@@ -814,6 +818,10 @@ textarea.is-error:focus {
 @media (max-width: 520px) {
   .head { padding: 28px 24px; }
   form, .body { padding: 28px 24px; }
+  /* US-068: US-067 の .shell--wide > .body { padding-left/right: 28px } が
+     上の .body { padding: 28px 24px } を specificity で勝って 24 → 28 に
+     増やしてしまう regression を修正。narrow viewport では更に詰めて 16px に。 */
+  .shell--wide > .body { padding-left: 16px; padding-right: 16px; }
   .foot { padding: 16px 24px 24px; }
   .head h1 { font-size: 22px; }
   .actions { flex-direction: column; }
