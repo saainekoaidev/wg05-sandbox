@@ -829,10 +829,12 @@ textarea.is-error:focus {
      shell の box-shadow は viewport 端で clip されるが, narrow viewport では
      許容範囲 (mobile-style 全幅 card レイアウト)。 */
   body { padding-left: 0; padding-right: 0; }
-  /* US-068/US-070: shell--wide の inner body lr padding は narrow viewport では
-     更に詰めて 8px に (US-068 の 16 → 8)。これで viewport 500px 程度で seg-item 450
-     が segment-list に収まる。 */
-  .shell--wide > .body { padding-left: 8px; padding-right: 8px; }
+  /* US-068/US-070/US-071: shell--wide の inner body lr padding を narrow viewport
+     では 0 まで詰める (US-070 の 8 → 0)。下の .segment-list lr padding 0 と合わせて
+     viewport 470px 程度で seg-item 450 が完全に収まる (scrollbar が出ない)。 */
+  .shell--wide > .body { padding-left: 0; padding-right: 0; }
+  /* US-071: narrow viewport では segment-list の左右 padding も 0 に詰める (10 → 0)。 */
+  .shell--wide > .body .segment-list { padding-left: 0; padding-right: 0; }
   .foot { padding: 16px 24px 24px; }
   .head h1 { font-size: 22px; }
   .actions { flex-direction: column; }
