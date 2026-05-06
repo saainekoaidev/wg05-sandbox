@@ -60,7 +60,14 @@ body {
 /* US-058: 一覧画面・詳細画面の横幅を 1080 → 1200 px に拡張 (運営会社列やサマリ表示の余裕を確保) */
 /* US-067: 経路詳細の SEGMENTS 行 (運営会社+種別+路線) の折り返しを抑制するため
    1200 → 1400 px に拡張。横 padding は .shell--wide > .body セレクタで縮小する。 */
-.shell--wide { max-width: 1400px; }
+/* US-072: shell--wide に min-width を直接設定して narrow viewport でも shell が縮まないようにする。
+   500px = seg-item 450 + 内部 padding (.body 16 lr + .segment-list 10 lr = 26) で +余裕 24px。
+   これより狭い viewport では body 自体が横スクロールするが, segment-list 内に scrollbar は出ない。
+   widening を padding 圧縮ではなく shell 幅そのもので担保する。 */
+.shell--wide {
+  min-width: 500px;
+  max-width: 1400px;
+}
 /* US-070: shell--wide の inner body 横 padding を 28 → 16 に縮小 (US-067 の 28 から更に詰める)。
    wide viewport では視覚的に十分な余白が残り, narrow viewport では seg-item を panel に
    収めるための原資になる。 */
